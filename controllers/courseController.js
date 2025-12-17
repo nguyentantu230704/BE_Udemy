@@ -116,4 +116,26 @@ const getCourseBySlug = async (req, res) => {
     }
 };
 
-module.exports = { createCourse, getCourseBySlug };
+
+// @desc    Lấy danh sách tất cả khóa học
+// @route   GET /api/courses
+// @access  Public
+const getAllCourses = async (req, res) => {
+    try {
+        // Có thể thêm lọc theo category hoặc search sau này
+        const courses = await Course.find({}) // Chỉ lấy khóa đã public (hoặc bỏ điều kiện này để test nếu bạn chưa set true) code bên trong => isPublished: true
+            .populate('instructor', 'name avatar')
+            .populate('category', 'name')
+            .select('-sections'); // Không cần lấy nội dung bài học ở trang danh sách cho nhẹ
+
+        res.json({
+            success: true,
+            count: courses.length,
+            data: courses
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+module.exports = { createCourse, getCourseBySlug, getAllCourses };

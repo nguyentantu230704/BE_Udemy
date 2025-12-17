@@ -1,8 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { createCourse, getCourseBySlug } = require('../controllers/courseController');
+const { createCourse, getCourseBySlug, getAllCourses } = require('../controllers/courseController');
 const upload = require('../config/cloudinary');
 const { protect } = require('../middleware/authMiddleware');
+
+
+// (Đặt lên trên cùng hoặc trước route /:slug để tránh conflict)
+router.get('/', getAllCourses);
 
 // Route: POST /api/courses/create
 router.post('/create', protect, function (req, res, next) {

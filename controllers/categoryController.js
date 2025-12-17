@@ -14,4 +14,18 @@ const createCategory = async (req, res) => {
     }
 };
 
-module.exports = { createCategory };
+// @desc    Lấy tất cả danh mục
+// @route   GET /api/categories
+const getAllCategories = async (req, res) => {
+    try {
+        const categories = await Category.find().select('name _id'); // Chỉ lấy tên và ID
+        res.json({
+            success: true,
+            data: categories
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+module.exports = { createCategory, getAllCategories };
