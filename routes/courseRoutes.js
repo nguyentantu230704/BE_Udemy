@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { createCourse, getCourseBySlug, getAllCourses } = require('../controllers/courseController');
-const upload = require('../config/cloudinary');
+const { upload } = require('../config/cloudinary');
+const { createCourse, getCourseBySlug, getAllCourses, togglePublishStatus, updateCourse, deleteCourse } = require('../controllers/courseController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
 
@@ -30,5 +30,15 @@ router.post('/create', protect, authorize('instructor', 'admin'), function (req,
 // Route lấy chi tiết (Để ở dưới cùng để tránh trùng lặp)
 // GET /api/courses/khoa-hoc-reactjs-pro
 router.get('/:slug', getCourseBySlug);
+
+// PUT /api/courses/:id/publish - Bật/tắt xuất bản
+router.put('/:id/publish', protect, authorize('instructor', 'admin'), togglePublishStatus);
+
+// PUT /api/courses/:id - Cập nhật thông tin (có upload ảnh thumbnail)
+// Sử dụng upload.single('thumbnail') vì chỉ up 1 ảnh bìa
+router.put('/:id', protect, authorize('instructor', 'admin'), upload.single('thumbnail'), updateCourse);
+
+// DELETE /api/courses/:id
+router.delete('/:id', protect, authorize('instructor', 'admin'), deleteCourse);
 
 module.exports = router;

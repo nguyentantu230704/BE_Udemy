@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { enrollCourse, getMyCourses, updateUserProfile } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
-const upload = require('../config/cloudinary'); // Import bộ upload
+const { upload } = require('../config/cloudinary'); // Import bộ upload
 
 // POST /api/users/enroll - Đăng ký học
 router.post('/enroll', protect, enrollCourse);

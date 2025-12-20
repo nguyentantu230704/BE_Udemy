@@ -49,4 +49,12 @@ const authorize = (...roles) => {
     };
 };
 
-module.exports = { protect, authorize };
+const admin = (req, res, next) => {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ success: false, message: "Không có quyền Admin" });
+    }
+};
+
+module.exports = { protect, authorize, admin };

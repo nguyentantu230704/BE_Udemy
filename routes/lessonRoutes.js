@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { createLesson } = require('../controllers/lessonController');
-const upload = require('../config/cloudinary'); // Dùng lại bộ upload cũ
+const { upload } = require('../config/cloudinary'); // Dùng lại bộ upload cũ
 const { protect, authorize } = require('../middleware/authMiddleware');
 
 // Route upload video: Field name là 'video'

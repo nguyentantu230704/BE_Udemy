@@ -64,56 +64,59 @@ const getMyCourses = async (req, res) => {
 // @access  Private
 const updateUserProfile = async (req, res) => {
     try {
-        const user = await User.findById(req.user._id);
+        // 1. Tìm user và lấy cả trường password (đề phòng model set select: false)
+        const user = await User.findById(req.user._id).select('+password');
 
-        if (user) {
-            // 1. Cập nhật Tên
-            user.name = req.body.name || user.name;
-
-            // 2. Cập nhật Avatar (Nếu có upload ảnh)
-            if (req.file) {
-                user.avatar = req.file.path; // Link ảnh Cloudinary
-            }
-
-            // 3. Xử lý Đổi mật khẩu (MỚI)
-            if (req.body.newPassword) {
-                // Kiểm tra xem có gửi mật khẩu cũ không
-                if (!req.body.currentPassword) {
-                    return res.status(400).json({ success: false, message: "Vui lòng nhập mật khẩu hiện tại để xác thực" });
-                }
-
-                // So sánh mật khẩu cũ với mật khẩu trong DB
-                // Lưu ý: user.password là chuỗi đã mã hóa
-                const isMatch = await bcrypt.compare(req.body.currentPassword, user.password);
-
-                if (!isMatch) {
-                    return res.status(400).json({ success: false, message: "Mật khẩu hiện tại không đúng" });
-                }
-
-                // Nếu đúng thì mới cho cập nhật mật khẩu mới
-                // Giả sử User Model có pre-save hook để hash, ta chỉ cần gán plaintext
-                user.password = req.body.newPassword;
-            }
-
-            const updatedUser = await user.save();
-
-            // Trả về token mới (hoặc giữ nguyên) và info mới
-            res.json({
-                success: true,
-                data: {
-                    _id: updatedUser._id,
-                    name: updatedUser.name,
-                    email: updatedUser.email,
-                    role: updatedUser.role,
-                    avatar: updatedUser.avatar,
-                    token: req.token // Giữ nguyên token cũ hoặc tạo mới tùy logic
-                }
-            });
-        } else {
-            res.status(404).json({ success: false, message: "Không tìm thấy User" });
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy User" });
         }
+
+        // 2. Cập nhật Tên
+        user.name = req.body.name || user.name;
+
+        // 3. Cập nhật Avatar (Nếu có upload ảnh mới từ Cloudinary)
+        if (req.file) {
+            user.avatar = req.file.path;
+        }
+
+        // 4. Xử lý Đổi mật khẩu (Quan trọng)
+        if (req.body.newPassword) {
+            // Kiểm tra xem có gửi mật khẩu cũ không
+            if (!req.body.currentPassword) {
+                return res.status(400).json({ success: false, message: "Vui lòng nhập mật khẩu hiện tại để xác thực" });
+            }
+
+            // So sánh mật khẩu cũ nhập vào với mật khẩu mã hóa trong DB
+            const isMatch = await bcrypt.compare(req.body.currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(400).json({ success: false, message: "Mật khẩu hiện tại không đúng" });
+            }
+
+            // --- MÃ HÓA MẬT KHẨU MỚI NGAY TẠI ĐÂY ---
+            // Để đảm bảo 100% không bị lỗi lưu plain text
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(req.body.newPassword, salt);
+        }
+
+        // 5. Lưu vào DB
+        const updatedUser = await user.save();
+
+        // 6. Trả về kết quả (Loại bỏ password ra khỏi data trả về cho an toàn)
+        res.json({
+            success: true,
+            message: "Cập nhật thông tin thành công",
+            data: {
+                _id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                role: updatedUser.role,
+                avatar: updatedUser.avatar,
+                // Không trả về password và token (token client tự lưu rồi, không cần gửi lại trừ khi refresh token)
+            }
+        });
+
     } catch (error) {
-        console.error(error);
+        console.error("Lỗi cập nhật profile:", error);
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };
