@@ -30,4 +30,23 @@ const protect = async (req, res, next) => {
     }
 };
 
-module.exports = { protect };
+// Middleware 2: Phân quyền
+// Nhận vào danh sách các role được phép. VD: authorize('instructor', 'admin')
+const authorize = (...roles) => {
+    return (req, res, next) => {
+        if (!req.user) {
+            return res.status(401).json({ success: false, message: "Chưa đăng nhập" });
+        }
+
+        // Kiểm tra role của user có nằm trong danh sách cho phép không
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                message: `User role ${req.user.role} không được phép truy cập`
+            });
+        }
+        next();
+    };
+};
+
+module.exports = { protect, authorize };

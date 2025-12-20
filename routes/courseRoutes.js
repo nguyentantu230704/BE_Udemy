@@ -2,14 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { createCourse, getCourseBySlug, getAllCourses } = require('../controllers/courseController');
 const upload = require('../config/cloudinary');
-const { protect } = require('../middleware/authMiddleware');
+const { protect, authorize } = require('../middleware/authMiddleware');
 
 
 // (Đặt lên trên cùng hoặc trước route /:slug để tránh conflict)
 router.get('/', getAllCourses);
 
 // Route: POST /api/courses/create
-router.post('/create', protect, function (req, res, next) {
+router.post('/create', protect, authorize('instructor', 'admin'), function (req, res, next) {
     // Bọc hàm upload để bắt lỗi
     upload.single('thumbnail')(req, res, function (err) {
         if (err) {

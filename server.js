@@ -8,6 +8,7 @@ const courseRoutes = require('./routes/courseRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const sectionRoutes = require('./routes/sectionRoutes');
 const lessonRoutes = require('./routes/lessonRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 // Config
 connectDB();
@@ -21,7 +22,7 @@ app.use(morgan('dev'));  // Log request
 app.use('/api/categories', categoryRoutes);
 app.use('/api/sections', sectionRoutes);
 app.use('/api/lessons', lessonRoutes);
-
+app.use('/api/users', userRoutes);
 
 app.get('/', (req, res) => {
     res.send('API is running...');

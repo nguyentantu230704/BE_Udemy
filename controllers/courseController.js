@@ -117,23 +117,44 @@ const getCourseBySlug = async (req, res) => {
 };
 
 
-// @desc    Lấy danh sách tất cả khóa học
+// @desc    Lấy danh sách khóa học
 // @route   GET /api/courses
-// @access  Public
 const getAllCourses = async (req, res) => {
     try {
-        // Có thể thêm lọc theo category hoặc search sau này
-        const courses = await Course.find({}) // Chỉ lấy khóa đã public (hoặc bỏ điều kiện này để test nếu bạn chưa set true) code bên trong => isPublished: true
+        // 1. Thêm tham số isPublished vào query
+        const { keyword, category, isPublished } = req.query;
+
+        let query = {}; // KHÔNG ĐỂ mặc định { isPublished: true } nữa
+
+        // 2. Logic tìm kiếm (giữ nguyên)
+        if (keyword) {
+            query.title = { $regex: keyword, $options: 'i' };
+        }
+
+        if (category) {
+            query.category = category;
+        }
+
+        // 3. Logic lọc Public/Draft (Mới)
+        // Nếu client gửi lên ?isPublished=true thì mới lọc
+        if (isPublished) {
+            query.isPublished = isPublished === 'true';
+        }
+
+        const courses = await Course.find(query)
             .populate('instructor', 'name avatar')
             .populate('category', 'name')
-            .select('-sections'); // Không cần lấy nội dung bài học ở trang danh sách cho nhẹ
+            .select('-sections')
+            .sort({ createdAt: -1 });
 
         res.json({
             success: true,
             count: courses.length,
             data: courses
         });
+
     } catch (error) {
+        console.error(error);
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };
