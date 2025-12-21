@@ -10,6 +10,7 @@ const sectionRoutes = require('./routes/sectionRoutes');
 const lessonRoutes = require('./routes/lessonRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const progressRoutes = require('./routes/progressRoutes');
 
 // Config
 connectDB();
@@ -25,6 +26,8 @@ app.use('/api/sections', sectionRoutes);
 app.use('/api/lessons', lessonRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/progress', progressRoutes);
+
 
 app.get('/', (req, res) => {
     res.send('API is running...');

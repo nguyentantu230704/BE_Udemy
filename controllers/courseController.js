@@ -2,6 +2,7 @@ const Course = require('../models/Course');
 const slugify = require('slugify'); // Thư viện tạo URL thân thiện
 const Section = require('../models/Section');
 const Lesson = require('../models/Lesson');
+const User = require('../models/User');
 const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Tạo khóa học mới
@@ -304,6 +305,14 @@ const deleteCourse = async (req, res) => {
             // Xóa Sections
             await Section.deleteMany({ _id: { $in: sectionIds } });
         }
+
+        // --- 3. [MỚI] XÓA ID KHÓA HỌC KHỎI DANH SÁCH MUA CỦA TẤT CẢ USER ---
+        // Tìm tất cả user nào có chứa courseId này trong mảng enrolledCourses
+        // Và dùng $pull để rút nó ra
+        await User.updateMany(
+            { enrolledCourses: courseId },
+            { $pull: { enrolledCourses: courseId } }
+        );
 
         // --- 4. CUỐI CÙNG: XÓA KHÓA HỌC ---
         await Course.findByIdAndDelete(req.params.id);

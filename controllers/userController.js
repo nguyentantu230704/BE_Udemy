@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const Course = require('../models/Course');
 const bcrypt = require('bcryptjs');
+const CourseProgress = require('../models/CourseProgress');
+
 
 // @desc    Đăng ký khóa học (Miễn phí / Enroll)
 // @route   POST /api/users/enroll
@@ -42,19 +44,78 @@ const enrollCourse = async (req, res) => {
     }
 };
 
-// Hàm lấy danh sách khóa học đã mua (My Learning)
+// @desc    Lấy danh sách khóa học đã mua kèm tiến độ
+// @route   GET /api/users/my-courses
 const getMyCourses = async (req, res) => {
     try {
-        const user = await User.findById(req.user._id)
-            .populate({
-                path: 'enrolledCourses',
-                populate: { path: 'instructor', select: 'name avatar' } // Lồng nhau để lấy cả tên giảng viên
+        // 1. Lấy user và populate sâu (Deep Populate)
+        const user = await User.findById(req.user._id).populate({
+            path: 'enrolledCourses',
+            select: 'title slug thumbnail instructor price sections',
+            populate: [
+                // Populate Giảng viên
+                {
+                    path: 'instructor',
+                    select: 'name'
+                },
+                // --- QUAN TRỌNG: Populate Sections để đếm bài học ---
+                {
+                    path: 'sections',
+                    select: 'lessons', // Chỉ cần lấy trường lessons
+                    populate: {
+                        path: 'lessons', // Populate tiếp vào lessons để đảm bảo đếm đúng
+                        select: '_id'    // Chỉ cần lấy _id là đủ đếm
+                    }
+                }
+            ]
+        });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const coursesWithProgress = await Promise.all(user.enrolledCourses.map(async (course) => {
+            if (!course) return null;
+
+            // 2. Tính tổng số bài học
+            let totalLessons = 0;
+            if (course.sections && Array.isArray(course.sections)) {
+                totalLessons = course.sections.reduce((acc, sec) => {
+                    // Bây giờ sec.lessons đã có dữ liệu nhờ populate ở trên
+                    const lessonCount = (sec.lessons && Array.isArray(sec.lessons)) ? sec.lessons.length : 0;
+                    return acc + lessonCount;
+                }, 0);
+            }
+
+            // 3. Lấy tiến độ
+            const progressDoc = await CourseProgress.findOne({
+                user: req.user._id,
+                course: course._id
             });
+
+            const completedCount = progressDoc ? progressDoc.completedLessons.length : 0;
+
+            // Log kiểm tra lại lần nữa (Sau này xóa đi)
+            // console.log(`Course: ${course.title} | Total: ${totalLessons} | Done: ${completedCount}`);
+
+            // 4. Tính phần trăm
+            const progressPercent = totalLessons === 0 ? 0 : Math.round((completedCount / totalLessons) * 100);
+
+            return {
+                ...course.toObject(),
+                progress: progressPercent
+            };
+        }));
+
+        const validCourses = coursesWithProgress.filter(c => c !== null);
+
         res.json({
             success: true,
-            data: user.enrolledCourses
+            data: validCourses
         });
+
     } catch (error) {
+        console.error("Lỗi getMyCourses:", error);
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };

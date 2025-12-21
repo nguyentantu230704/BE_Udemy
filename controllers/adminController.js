@@ -3,7 +3,6 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const bcrypt = require('bcryptjs');
 
-
 // Hàm hỗ trợ lấy public_id từ URL Cloudinary
 const getPublicIdFromUrl = (url) => {
     try {
@@ -165,4 +164,48 @@ const updateUser = async (req, res) => {
     }
 };
 
-module.exports = { getAdminStats, getAllUsers, deleteUser, createUser, updateUser };
+
+// @desc    Quét và xóa các ID khóa học không tồn tại trong User
+// @route   POST /api/admin/cleanup
+const cleanupEnrollments = async (req, res) => {
+    try {
+        // 1. Lấy tất cả users
+        const users = await User.find({});
+
+        let updatedCount = 0;
+
+        // 2. Duyệt qua từng user
+        for (const user of users) {
+            if (user.enrolledCourses && user.enrolledCourses.length > 0) {
+                // Lọc lại mảng: Chỉ giữ lại những ID nào mà Khóa học đó còn tồn tại trong DB
+                // Cách này hơi chậm nếu data lớn, nhưng chạy 1 lần thì OK.
+
+                const validCourses = [];
+                for (const courseId of user.enrolledCourses) {
+                    const exists = await Course.exists({ _id: courseId });
+                    if (exists) {
+                        validCourses.push(courseId);
+                    }
+                }
+
+                // Nếu số lượng thay đổi (tức là có rác), thì update lại DB
+                if (validCourses.length !== user.enrolledCourses.length) {
+                    user.enrolledCourses = validCourses;
+                    await user.save();
+                    updatedCount++;
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Đã dọn dẹp xong. Cập nhật lại ${updatedCount} người dùng có dữ liệu rác.`
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Lỗi dọn dẹp" });
+    }
+};
+
+module.exports = { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments };
