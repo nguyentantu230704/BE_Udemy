@@ -20,7 +20,11 @@ const enrollCourse = async (req, res) => {
 
         // 2. Kiểm tra user đã mua chưa
         const user = await User.findById(userId);
-        if (user.enrolledCourses.includes(courseId)) {
+
+        // Dùng .some() và .toString() để so sánh an toàn giữa String và ObjectId
+        const isEnrolled = user.enrolledCourses.some(id => id.toString() === courseId);
+
+        if (isEnrolled) {
             return res.status(400).json({ success: false, message: "Bạn đã đăng ký khóa học này rồi" });
         }
 
@@ -28,9 +32,12 @@ const enrollCourse = async (req, res) => {
         user.enrolledCourses.push(courseId);
         await user.save();
 
-        // (Optional) Thêm userId vào mảng students của Course để đếm số lượng học viên
-        // course.students.push(userId);
-        // await course.save();
+        // --- 4. TĂNG SỐ LƯỢNG HỌC VIÊN CỦA KHÓA HỌC (MỚI) ---
+        // Dùng lệnh $inc của MongoDB để tăng số đếm lên 1 một cách nguyên tử (atomic)
+        await Course.findByIdAndUpdate(courseId, {
+            $inc: { totalStudents: 1 }
+        });
+        // ----------------------------------------------------
 
         res.status(200).json({
             success: true,
@@ -39,7 +46,7 @@ const enrollCourse = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Lỗi enrollCourse:", error);
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };
@@ -48,24 +55,15 @@ const enrollCourse = async (req, res) => {
 // @route   GET /api/users/my-courses
 const getMyCourses = async (req, res) => {
     try {
-        // 1. Lấy user và populate sâu (Deep Populate)
         const user = await User.findById(req.user._id).populate({
             path: 'enrolledCourses',
             select: 'title slug thumbnail instructor price sections',
             populate: [
-                // Populate Giảng viên
-                {
-                    path: 'instructor',
-                    select: 'name'
-                },
-                // --- QUAN TRỌNG: Populate Sections để đếm bài học ---
+                { path: 'instructor', select: 'name' },
                 {
                     path: 'sections',
-                    select: 'lessons', // Chỉ cần lấy trường lessons
-                    populate: {
-                        path: 'lessons', // Populate tiếp vào lessons để đảm bảo đếm đúng
-                        select: '_id'    // Chỉ cần lấy _id là đủ đếm
-                    }
+                    select: 'lessons',
+                    populate: { path: 'lessons', select: '_id' } // Chỉ cần lấy ID để đếm
                 }
             ]
         });
@@ -77,29 +75,45 @@ const getMyCourses = async (req, res) => {
         const coursesWithProgress = await Promise.all(user.enrolledCourses.map(async (course) => {
             if (!course) return null;
 
-            // 2. Tính tổng số bài học
-            let totalLessons = 0;
+            // 1. Lấy danh sách TẤT CẢ ID bài học hợp lệ hiện có trong khóa học
+            let validLessonIds = [];
             if (course.sections && Array.isArray(course.sections)) {
-                totalLessons = course.sections.reduce((acc, sec) => {
-                    // Bây giờ sec.lessons đã có dữ liệu nhờ populate ở trên
-                    const lessonCount = (sec.lessons && Array.isArray(sec.lessons)) ? sec.lessons.length : 0;
-                    return acc + lessonCount;
-                }, 0);
+                course.sections.forEach(sec => {
+                    if (sec.lessons && Array.isArray(sec.lessons)) {
+                        sec.lessons.forEach(lesson => {
+                            validLessonIds.push(lesson._id.toString());
+                        });
+                    }
+                });
             }
 
-            // 3. Lấy tiến độ
+            const totalLessons = validLessonIds.length;
+
+            // 2. Lấy bảng tiến độ của user
             const progressDoc = await CourseProgress.findOne({
                 user: req.user._id,
                 course: course._id
             });
 
-            const completedCount = progressDoc ? progressDoc.completedLessons.length : 0;
+            let completedCount = 0;
+            if (progressDoc && progressDoc.completedLessons) {
+                // --- SỬA LỖI 120% TẠI ĐÂY ---
+                // Chỉ đếm những bài hoàn thành nằm trong danh sách validLessonIds
+                const cleanCompletedLessons = progressDoc.completedLessons.filter(completedId =>
+                    validLessonIds.includes(completedId.toString())
+                );
 
-            // Log kiểm tra lại lần nữa (Sau này xóa đi)
-            // console.log(`Course: ${course.title} | Total: ${totalLessons} | Done: ${completedCount}`);
+                completedCount = cleanCompletedLessons.length;
 
-            // 4. Tính phần trăm
-            const progressPercent = totalLessons === 0 ? 0 : Math.round((completedCount / totalLessons) * 100);
+                // (Tùy chọn) Nếu muốn tự động dọn rác trong DB luôn thì update lại progressDoc ở đây
+                // Nhưng để an toàn và nhanh, ta chỉ cần lọc khi hiển thị là đủ.
+            }
+
+            // 3. Tính phần trăm
+            let progressPercent = totalLessons === 0 ? 0 : Math.round((completedCount / totalLessons) * 100);
+
+            // 4. Chốt chặn cuối cùng: Không bao giờ cho vượt quá 100%
+            if (progressPercent > 100) progressPercent = 100;
 
             return {
                 ...course.toObject(),

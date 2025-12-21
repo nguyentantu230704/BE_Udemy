@@ -101,7 +101,7 @@ const getCourseBySlug = async (req, res) => {
                 path: 'sections',
                 populate: {
                     path: 'lessons',
-                    select: 'title slug video isPreview'
+                    select: 'title slug video isPreview duration type content quizQuestions order'
                 }
             });
 
@@ -121,35 +121,37 @@ const getCourseBySlug = async (req, res) => {
 };
 
 
-// @desc    Lấy danh sách khóa học
+// @desc    Lấy danh sách khóa học (Hỗ trợ lọc Public/Draft, Tìm kiếm, Danh mục)
 // @route   GET /api/courses
 const getAllCourses = async (req, res) => {
     try {
-        // 1. Thêm tham số isPublished vào query
+        // 1. Lấy tham số từ Query String
         const { keyword, category, isPublished } = req.query;
 
-        let query = {}; // KHÔNG ĐỂ mặc định { isPublished: true } nữa
+        // Khởi tạo query rỗng (Lấy tất cả nếu không có lọc)
+        let query = {};
 
-        // 2. Logic tìm kiếm (giữ nguyên)
+        // 2. Logic tìm kiếm theo tên (Keyword)
         if (keyword) {
             query.title = { $regex: keyword, $options: 'i' };
         }
 
+        // 3. Logic lọc theo Danh mục
         if (category) {
             query.category = category;
         }
 
-        // 3. Logic lọc Public/Draft (Mới)
-        // Nếu client gửi lên ?isPublished=true thì mới lọc
-        if (isPublished) {
+        // 4. Logic lọc Public/Draft (QUAN TRỌNG)
+        // Chỉ khi client gửi tham số isPublished lên thì mới lọc
+        if (isPublished !== undefined) {
             query.isPublished = isPublished === 'true';
         }
 
         const courses = await Course.find(query)
-            .populate('instructor', 'name avatar')
-            .populate('category', 'name')
-            .select('-sections')
-            .sort({ createdAt: -1 });
+            .populate('instructor', 'name avatar') // Lấy thông tin giảng viên
+            .populate('category', 'name slug')     // Lấy thông tin danh mục
+            .select('-sections')                   // Bỏ qua sections cho nhẹ
+            .sort({ createdAt: -1 });              // Mới nhất lên đầu
 
         res.json({
             success: true,
@@ -158,7 +160,7 @@ const getAllCourses = async (req, res) => {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Lỗi getAllCourses:", error);
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };

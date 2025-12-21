@@ -37,4 +37,33 @@ const createSection = async (req, res) => {
     }
 };
 
-module.exports = { createSection };
+// @desc    Xóa chương và các bài học bên trong
+// @route   DELETE /api/sections/:id
+const deleteSection = async (req, res) => {
+    try {
+        const section = await Section.findById(req.params.id);
+        if (!section) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy chương" });
+        }
+
+        // 1. Xóa tất cả bài học thuộc chương này (Dọn rác)
+        // Lưu ý: Nếu muốn xóa sạch video trên Cloudinary thì phải loop qua từng lesson để xóa.
+        // Ở đây mình xóa nhanh trong DB.
+        await Lesson.deleteMany({ section: req.params.id });
+
+        // 2. Xóa ID chương khỏi mảng sections của Course
+        await Course.findByIdAndUpdate(section.courseId, {
+            $pull: { sections: section._id }
+        });
+
+        // 3. Xóa chương
+        await Section.findByIdAndDelete(req.params.id);
+
+        res.json({ success: true, message: "Đã xóa chương và các bài học liên quan" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Lỗi xóa chương" });
+    }
+};
+
+module.exports = { createSection, deleteSection };

@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/authMiddleware');
 const { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments } = require('../controllers/adminController');
+const {
+    getAllCategories,
+    createCategory,
+    updateCategory,
+    deleteCategory
+} = require('../controllers/categoryController');
 
 // Tất cả các route dưới đây đều cần login và quyền admin
 router.use(protect);
@@ -13,5 +19,11 @@ router.post('/users', createUser);       // <--- Tạo mới
 router.put('/users/:id', updateUser);    // <--- Cập nhật (Cấp quyền)
 router.delete('/users/:id', deleteUser);
 router.post('/cleanup', cleanupEnrollments);
+
+// --- ROUTES CATEGORY (Mới) ---
+router.get('/categories', getAllCategories); // Admin xem list để quản lý
+router.post('/categories', createCategory);
+router.put('/categories/:id', updateCategory);
+router.delete('/categories/:id', deleteCategory);
 
 module.exports = router;
