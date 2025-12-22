@@ -11,7 +11,9 @@ const userSchema = new mongoose.Schema({
     },
     avatar: { type: String, default: '' },
     // Mảng chứa ID các khóa học đã mua
-    enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }]
+    enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
+    // --- THÊM TRƯỜNG CART ---
+    cart: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

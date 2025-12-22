@@ -1,6 +1,7 @@
 const { cloudinary } = require('../config/cloudinary');
 const User = require('../models/User');
 const Course = require('../models/Course');
+const CourseProgress = require('../models/CourseProgress');
 const bcrypt = require('bcryptjs');
 
 // Hàm hỗ trợ lấy public_id từ URL Cloudinary
@@ -55,7 +56,12 @@ const getAdminStats = async (req, res) => {
 // @route   GET /api/admin/users
 const getAllUsers = async (req, res) => {
     try {
-        const users = await User.find().select('-password').sort({ createdAt: -1 });
+        const users = await User.find()
+            .select('-password')
+            // Populate thêm khóa học đã mua để hiển thị ở Admin
+            .populate('enrolledCourses', 'title thumbnail slug price')
+            .sort({ createdAt: -1 });
+
         res.json({ success: true, data: users });
     } catch (error) {
         res.status(500).json({ success: false, message: "Lỗi server" });
@@ -208,4 +214,43 @@ const cleanupEnrollments = async (req, res) => {
     }
 };
 
-module.exports = { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments };
+
+// @desc    Gỡ khóa học khỏi User (MỚI)
+// @route   DELETE /api/admin/users/:userId/courses/:courseId
+const removeUserCourse = async (req, res) => {
+    try {
+        const { userId, courseId } = req.params;
+
+        // 1. Xóa courseId khỏi mảng enrolledCourses của User
+        await User.findByIdAndUpdate(userId, {
+            $pull: { enrolledCourses: courseId }
+        });
+
+        // 2. Xóa tiến độ học tập
+        await CourseProgress.findOneAndDelete({
+            user: userId,
+            course: courseId
+        });
+
+        // --- 3. LOGIC MỚI: ĐẾM LẠI SỐ HỌC VIÊN THỰC TẾ ---
+        // Thay vì trừ 1, ta đếm xem hiện tại có bao nhiêu user đang giữ courseId này
+        const actualStudentCount = await User.countDocuments({
+            enrolledCourses: courseId
+        });
+
+        // Cập nhật con số chính xác vào Course
+        await Course.findByIdAndUpdate(courseId, {
+            totalStudents: actualStudentCount
+        });
+        // -------------------------------------------------
+
+        res.json({ success: true, message: "Đã gỡ khóa học và cập nhật lại sĩ số" });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+
+module.exports = { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse };

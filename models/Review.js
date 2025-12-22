@@ -5,6 +5,11 @@ const reviewSchema = new mongoose.Schema({
     course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
     rating: { type: Number, required: true, min: 1, max: 5 },
     comment: { type: String, required: true },
+    instructorReply: {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        comment: { type: String },
+        updatedAt: { type: Date }
+    }
 }, { timestamps: true });
 
 // Đảm bảo 1 user chỉ đánh giá 1 lần cho 1 khóa học

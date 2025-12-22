@@ -90,9 +90,9 @@ const getCourseBySlug = async (req, res) => {
     try {
         const { slug } = req.params;
 
-        // Tìm khóa học theo slug
+        // --- GIỮ NGUYÊN LOGIC CŨ CỦA BẠN ---
         const course = await Course.findOne({ slug })
-            // 1. Lấy thông tin Giảng viên (chỉ lấy tên và avatar, không lấy password)
+            // 1. Lấy thông tin Giảng viên
             .populate('instructor', 'name avatar')
             // 2. Lấy thông tin Danh mục
             .populate('category', 'name slug')
@@ -109,13 +109,58 @@ const getCourseBySlug = async (req, res) => {
             return res.status(404).json({ success: false, message: "Không tìm thấy khóa học" });
         }
 
+        // --- CẬP NHẬT MỚI TỪ ĐÂY ---
+
+        let hasAccess = false; // Mặc định là chưa được xem
+
+        // Kiểm tra nếu User đang đăng nhập
+        if (req.user) {
+            const userId = req.user._id.toString();
+
+            // 1. Kiểm tra Enrollment (Học viên đã mua)
+            // Cần import Model User ở đầu file nếu chưa có
+            const user = await User.findById(userId);
+            if (user && user.enrolledCourses.includes(course._id)) {
+                hasAccess = true;
+            }
+
+            // 2. Kiểm tra Quyền Giảng viên (Chính chủ)
+            // course.instructor là Object do đã populate ở trên
+            if (course.instructor && course.instructor._id.toString() === userId) {
+                hasAccess = true;
+            }
+        }
+
+        // Chuyển sang Object thuần để chỉnh sửa dữ liệu trả về
+        const courseData = course.toObject();
+
+        // Nếu KHÔNG có quyền truy cập, ta cần ẩn link video (nếu muốn bảo mật)
+        // Dùng if check kỹ lưỡng để tránh lỗi "forEach of undefined"
+        if (!hasAccess) {
+            if (courseData.sections && Array.isArray(courseData.sections)) {
+                courseData.sections.forEach(section => {
+                    if (section.lessons && Array.isArray(section.lessons)) {
+                        section.lessons.forEach(lesson => {
+                            // Logic ẩn video nếu cần (Ví dụ chỉ hiện preview)
+                            if (lesson.type === 'video' && !lesson.isPreview) {
+                                // lesson.video = null; // Bỏ comment dòng này nếu muốn ẩn link video từ server
+                            }
+                        });
+                    }
+                });
+            }
+        }
+
         res.json({
             success: true,
-            data: course
+            data: {
+                ...courseData,
+                isAccess: hasAccess // Trả về cờ này để Frontend hiển thị nút "Vào học"
+            }
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Lỗi getCourseBySlug:", error);
         res.status(500).json({ success: false, message: "Lỗi server" });
     }
 };

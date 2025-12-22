@@ -51,11 +51,14 @@ const enrollCourse = async (req, res) => {
     }
 };
 
-// @desc    Lấy danh sách khóa học đã mua kèm tiến độ
+// @desc    Lấy danh sách khóa học của tôi (Đã mua + Tự dạy + Kèm tiến độ)
 // @route   GET /api/users/my-courses
 const getMyCourses = async (req, res) => {
     try {
-        const user = await User.findById(req.user._id).populate({
+        const userId = req.user._id;
+
+        // 1. Lấy khóa học ĐÃ MUA (Enrolled)
+        const user = await User.findById(userId).populate({
             path: 'enrolledCourses',
             select: 'title slug thumbnail instructor price sections',
             populate: [
@@ -63,7 +66,7 @@ const getMyCourses = async (req, res) => {
                 {
                     path: 'sections',
                     select: 'lessons',
-                    populate: { path: 'lessons', select: '_id' } // Chỉ cần lấy ID để đếm
+                    populate: { path: 'lessons', select: '_id' } // Lấy ID để đếm bài học
                 }
             ]
         });
@@ -72,10 +75,43 @@ const getMyCourses = async (req, res) => {
             return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        const coursesWithProgress = await Promise.all(user.enrolledCourses.map(async (course) => {
+        // 2. [THÊM MỚI] Lấy khóa học TỰ DẠY (Taught)
+        // Cần populate giống hệt bên trên để logic tính tiến độ bên dưới hoạt động được
+        const taughtCourses = await Course.find({ instructor: userId })
+            .select('title slug thumbnail instructor price sections')
+            .populate('instructor', 'name')
+            .populate({
+                path: 'sections',
+                select: 'lessons',
+                populate: { path: 'lessons', select: '_id' }
+            });
+
+        // 3. [THÊM MỚI] Gộp danh sách và Loại bỏ trùng lặp
+        let allCourses = user.enrolledCourses || [];
+
+        if (taughtCourses.length > 0) {
+            const courseMap = new Map();
+
+            // Ưu tiên khóa đã mua (để giữ nguyên thứ tự hoặc logic nếu cần)
+            allCourses.forEach(c => courseMap.set(c._id.toString(), c));
+
+            // Thêm khóa tự dạy (nếu chưa có trong list mua)
+            taughtCourses.forEach(c => {
+                if (!courseMap.has(c._id.toString())) {
+                    courseMap.set(c._id.toString(), c);
+                }
+            });
+
+            allCourses = Array.from(courseMap.values());
+        }
+
+        // 4. Tính toán tiến độ cho DANH SÁCH TỔNG HỢP (allCourses)
+        const coursesWithProgress = await Promise.all(allCourses.map(async (course) => {
             if (!course) return null;
 
-            // 1. Lấy danh sách TẤT CẢ ID bài học hợp lệ hiện có trong khóa học
+            // --- Logic tính tiến độ (GIỮ NGUYÊN TỪ CODE CỦA BẠN) ---
+
+            // 4.1. Lấy danh sách TẤT CẢ ID bài học hợp lệ
             let validLessonIds = [];
             if (course.sections && Array.isArray(course.sections)) {
                 course.sections.forEach(sec => {
@@ -89,30 +125,23 @@ const getMyCourses = async (req, res) => {
 
             const totalLessons = validLessonIds.length;
 
-            // 2. Lấy bảng tiến độ của user
+            // 4.2. Lấy bảng tiến độ của user
             const progressDoc = await CourseProgress.findOne({
-                user: req.user._id,
+                user: userId,
                 course: course._id
             });
 
             let completedCount = 0;
             if (progressDoc && progressDoc.completedLessons) {
-                // --- SỬA LỖI 120% TẠI ĐÂY ---
-                // Chỉ đếm những bài hoàn thành nằm trong danh sách validLessonIds
+                // Lọc chỉ đếm những bài thực sự tồn tại (Fix lỗi > 100%)
                 const cleanCompletedLessons = progressDoc.completedLessons.filter(completedId =>
                     validLessonIds.includes(completedId.toString())
                 );
-
                 completedCount = cleanCompletedLessons.length;
-
-                // (Tùy chọn) Nếu muốn tự động dọn rác trong DB luôn thì update lại progressDoc ở đây
-                // Nhưng để an toàn và nhanh, ta chỉ cần lọc khi hiển thị là đủ.
             }
 
-            // 3. Tính phần trăm
+            // 4.3. Tính phần trăm
             let progressPercent = totalLessons === 0 ? 0 : Math.round((completedCount / totalLessons) * 100);
-
-            // 4. Chốt chặn cuối cùng: Không bao giờ cho vượt quá 100%
             if (progressPercent > 100) progressPercent = 100;
 
             return {
@@ -197,4 +226,65 @@ const updateUserProfile = async (req, res) => {
 };
 
 
-module.exports = { enrollCourse, getMyCourses, updateUserProfile };
+// @desc    Lấy giỏ hàng của user
+// @route   GET /api/users/cart
+const getCart = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).populate({
+            path: 'cart',
+            select: 'title slug price thumbnail instructor', // Lấy các trường cần thiết để hiển thị
+            populate: { path: 'instructor', select: 'name' }
+        });
+
+        res.json({ success: true, data: user.cart });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// @desc    Thêm vào giỏ hàng
+// @route   POST /api/users/cart
+const addToCart = async (req, res) => {
+    try {
+        const { courseId } = req.body;
+        const userId = req.user._id;
+
+        const user = await User.findById(userId);
+
+        // 1. Kiểm tra đã mua chưa
+        if (user.enrolledCourses.includes(courseId)) {
+            return res.status(400).json({ success: false, message: "Bạn đã sở hữu khóa học này rồi" });
+        }
+
+        // 2. Thêm vào cart (dùng $addToSet để tránh trùng lặp)
+        await User.findByIdAndUpdate(userId, {
+            $addToSet: { cart: courseId }
+        });
+
+        res.json({ success: true, message: "Đã thêm vào giỏ hàng" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// @desc    Xóa khỏi giỏ hàng
+// @route   DELETE /api/users/cart/:courseId
+const removeFromCart = async (req, res) => {
+    try {
+        const { courseId } = req.params;
+        const userId = req.user._id;
+
+        await User.findByIdAndUpdate(userId, {
+            $pull: { cart: courseId }
+        });
+
+        res.json({ success: true, message: "Đã xóa khỏi giỏ hàng" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+
+
+
+module.exports = { enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart };

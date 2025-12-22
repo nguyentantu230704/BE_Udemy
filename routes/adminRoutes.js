@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/authMiddleware');
-const { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments } = require('../controllers/adminController');
+const { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse } = require('../controllers/adminController');
 const {
     getAllCategories,
     createCategory,
@@ -25,5 +25,8 @@ router.get('/categories', getAllCategories); // Admin xem list để quản lý
 router.post('/categories', createCategory);
 router.put('/categories/:id', updateCategory);
 router.delete('/categories/:id', deleteCategory);
+
+// Route Gỡ khóa học
+router.delete('/users/:userId/courses/:courseId', removeUserCourse);
 
 module.exports = router;
