@@ -38,6 +38,8 @@ const courseSchema = new mongoose.Schema({
         default: 0 // Mặc định là 0 học viên
     },
 
+    objectives: [{ type: String }], // Lưu danh sách các mục tiêu (từng dòng tích xanh)
+
     isPublished: { type: Boolean, default: false },
 }, { timestamps: true });
 

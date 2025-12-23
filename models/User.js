@@ -14,6 +14,13 @@ const userSchema = new mongoose.Schema({
     enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
     // --- THÊM TRƯỜNG CART ---
     cart: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
+
+    // --- THÔNG TIN BỔ SUNG CHO PROFILE ---
+    headline: { type: String, default: '' }, // Ví dụ: Fullstack Developer
+    bio: { type: String, default: '' },      // Giới thiệu bản thân
+    // -------------------------------------
+
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

@@ -93,7 +93,7 @@ const getCourseBySlug = async (req, res) => {
         // --- GIỮ NGUYÊN LOGIC CŨ CỦA BẠN ---
         const course = await Course.findOne({ slug })
             // 1. Lấy thông tin Giảng viên
-            .populate('instructor', 'name avatar')
+            .populate('instructor', 'name avatar bio headline')
             // 2. Lấy thông tin Danh mục
             .populate('category', 'name slug')
             // 3. QUAN TRỌNG: Lấy Sections và lồng bên trong là Lessons
@@ -274,6 +274,21 @@ const updateCourse = async (req, res) => {
                 url: req.file.path,
                 public_id: req.file.filename
             };
+        }
+
+        // Thêm logic xử lý objectives từ form gửi lên
+        if (req.body.objectives) {
+            // Nếu gửi dạng JSON string (do dùng FormData) thì parse ra
+            try {
+                // Kiểm tra nếu là string thì parse, nếu là mảng thì lấy luôn
+                const objectivesData = typeof req.body.objectives === 'string'
+                    ? JSON.parse(req.body.objectives)
+                    : req.body.objectives;
+
+                course.objectives = objectivesData;
+            } catch (e) {
+                console.error("Lỗi parse objectives", e);
+            }
         }
 
         await course.save();

@@ -163,65 +163,86 @@ const getMyCourses = async (req, res) => {
     }
 };
 
+
+// @desc    Lấy thông tin user (Profile) để hiển thị
+// @route   GET /api/users/profile
+const getUserProfile = async (req, res) => {
+    try {
+        // req.user._id có được nhờ middleware 'protect'
+        const user = await User.findById(req.user._id).select('-password');
+
+        if (user) {
+            res.json({
+                success: true,
+                data: user
+            });
+        } else {
+            res.status(404).json({ success: false, message: 'User not found' });
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+};
+
+
 // @desc    Cập nhật thông tin cá nhân (Tên, Avatar, Password)
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = async (req, res) => {
     try {
-        // 1. Tìm user và lấy cả trường password (đề phòng model set select: false)
-        const user = await User.findById(req.user._id).select('+password');
+        const user = await User.findById(req.user._id);
 
-        if (!user) {
-            return res.status(404).json({ success: false, message: "Không tìm thấy User" });
-        }
+        if (user) {
+            // 1. Cập nhật thông tin text
+            user.name = req.body.name || user.name;
+            user.headline = req.body.headline || user.headline;
+            user.bio = req.body.bio || user.bio;
 
-        // 2. Cập nhật Tên
-        user.name = req.body.name || user.name;
+            // Cập nhật Mạng xã hội (nếu có)
+            user.website = req.body.website || user.website;
+            user.twitter = req.body.twitter || user.twitter;
+            user.linkedin = req.body.linkedin || user.linkedin;
+            user.youtube = req.body.youtube || user.youtube;
 
-        // 3. Cập nhật Avatar (Nếu có upload ảnh mới từ Cloudinary)
-        if (req.file) {
-            user.avatar = req.file.path;
-        }
-
-        // 4. Xử lý Đổi mật khẩu (Quan trọng)
-        if (req.body.newPassword) {
-            // Kiểm tra xem có gửi mật khẩu cũ không
-            if (!req.body.currentPassword) {
-                return res.status(400).json({ success: false, message: "Vui lòng nhập mật khẩu hiện tại để xác thực" });
+            // 2. Cập nhật Avatar (Logic CŨ -> Đã được kiểm chứng là hoạt động)
+            // Middleware upload.single('avatar') đã xử lý việc up lên Cloudinary trước khi vào hàm này
+            if (req.file) {
+                user.avatar = req.file.path; // Lưu link Cloudinary vào DB
+            }
+            // Nếu không upload ảnh mới, nhưng frontend gửi link ảnh cũ (dạng string)
+            else if (req.body.avatar && typeof req.body.avatar === 'string' && req.body.avatar.trim() !== '') {
+                // Logic này để phòng trường hợp user tự paste link ảnh
+                user.avatar = req.body.avatar;
             }
 
-            // So sánh mật khẩu cũ nhập vào với mật khẩu mã hóa trong DB
-            const isMatch = await bcrypt.compare(req.body.currentPassword, user.password);
-            if (!isMatch) {
-                return res.status(400).json({ success: false, message: "Mật khẩu hiện tại không đúng" });
-            }
+            // (Đã xóa phần mật khẩu theo yêu cầu)
 
-            // --- MÃ HÓA MẬT KHẨU MỚI NGAY TẠI ĐÂY ---
-            // Để đảm bảo 100% không bị lỗi lưu plain text
-            const salt = await bcrypt.genSalt(10);
-            user.password = await bcrypt.hash(req.body.newPassword, salt);
+            const updatedUser = await user.save();
+
+            res.json({
+                success: true,
+                message: "Cập nhật hồ sơ thành công",
+                data: {
+                    _id: updatedUser._id,
+                    name: updatedUser.name,
+                    email: updatedUser.email,
+                    role: updatedUser.role,
+                    avatar: updatedUser.avatar,
+                    headline: updatedUser.headline,
+                    bio: updatedUser.bio
+                }
+            });
+        } else {
+            res.status(404).json({ success: false, message: 'User not found' });
         }
-
-        // 5. Lưu vào DB
-        const updatedUser = await user.save();
-
-        // 6. Trả về kết quả (Loại bỏ password ra khỏi data trả về cho an toàn)
-        res.json({
-            success: true,
-            message: "Cập nhật thông tin thành công",
-            data: {
-                _id: updatedUser._id,
-                name: updatedUser.name,
-                email: updatedUser.email,
-                role: updatedUser.role,
-                avatar: updatedUser.avatar,
-                // Không trả về password và token (token client tự lưu rồi, không cần gửi lại trừ khi refresh token)
-            }
-        });
-
     } catch (error) {
         console.error("Lỗi cập nhật profile:", error);
-        res.status(500).json({ success: false, message: "Lỗi server" });
+        // Trả về lỗi 400 nếu Validation fail, thay vì 500
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+        res.status(500).json({ success: false, message: 'Lỗi server' });
     }
 };
 
@@ -285,6 +306,36 @@ const removeFromCart = async (req, res) => {
 };
 
 
+// @desc    Đổi mật khẩu (Riêng biệt)
+// @route   PUT /api/users/change-password
+const changePassword = async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        // 1. Tìm user và lấy password hash
+        const user = await User.findById(req.user._id).select('+password');
+
+        // 2. Kiểm tra mật khẩu cũ
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ success: false, message: "Mật khẩu hiện tại không đúng" });
+        }
+
+        // 3. Hash mật khẩu mới
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+
+        await user.save();
+
+        res.json({ success: true, message: "Đổi mật khẩu thành công" });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
 
 
-module.exports = { enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart };
+
+
+module.exports = { enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart, getUserProfile, changePassword };
