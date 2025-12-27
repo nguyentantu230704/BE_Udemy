@@ -1,4 +1,11 @@
 module.exports = (req, res, next) => {
+  if (!req.body) {
+    return res.json(400).json({
+      success: false,
+      message: 'Request body is missing',
+    });
+  }
+
   const { method, amount, orderId } = req.body;
 
   if (!method || !amount || !orderId) {

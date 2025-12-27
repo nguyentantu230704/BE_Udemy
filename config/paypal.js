@@ -1,9 +1,11 @@
-const paypal = require('@paypal/checkout-server-sdk');
-require('dotenv').config();
+const { Client, Environment } = require('@paypal/paypal-server-sdk');
 
-const environment = new paypal.core.SandboxEnvironment(
-  process.env.PAYPAL_CLIENT_ID,
-  process.env.PAYPAL_SECRET,
-);
+const client = new Client({
+  clientCredentialsAuthCredentials: {
+    oAuthClientId: process.env.PAYPAL_CLIENT_ID,
+    oAuthClientSecret: process.env.PAYPAL_CLIENT_SECRET,
+  },
+  environment: Environment.Sandbox,
+});
 
-module.exports = new paypal.core.PayPalHttpClient(environment);
+module.exports = client;

@@ -20,6 +20,7 @@ const app = express();
 
 // Middlewares
 app.use(express.json()); // Để đọc JSON từ body request
+app.use(express.urlencoded({ extended: true }));
 app.use(cors()); // Cho phép Frontend gọi API
 app.use(morgan('dev')); // Log request
 app.use('/api/categories', categoryRoutes);

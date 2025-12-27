@@ -1,3 +1,10 @@
+// Temporary env defaults for local testing (override in .env for real runs)
+process.env.VNPAY_TMN_CODE = process.env.VNPAY_TMN_CODE || 'TESTTMNCODE';
+process.env.VNP_HASH_SECRET = process.env.VNP_HASH_SECRET || 'TESTSECRET';
+process.env.VNP_BASE_URL =
+  process.env.VNP_BASE_URL ||
+  'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+
 const VNPayStrategy = require('../modules/payment/strategies/vnpayStrategy');
 const config = require('../config/vnpay');
 

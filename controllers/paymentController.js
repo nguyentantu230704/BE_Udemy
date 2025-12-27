@@ -1,24 +1,36 @@
 const paymentService = require('../service/paymentService');
 
-// Tạo payment
+/**
+ * Tạo payment (VNPay / PayPal / ...)
+ */
 exports.createPayment = async (req, res) => {
   try {
     const {
-      method,
+      method, // 'vnpay', 'paypal', ...
       amount,
       orderId,
-      description = 'Thanh toán đơn hàng',
+      description,
     } = req.body;
 
-    const ipAddress = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    // Lấy IP client (chuẩn VNPay)
+    let ipAddr =
+      req.headers['x-forwarded-for'] ||
+      req.socket?.remoteAddress ||
+      req.connection?.remoteAddress ||
+      '127.0.0.1';
 
-    const paymentResult = await paymentService.createPayment({
+    if (typeof ipAddr === 'string' && ipAddr.includes(',')) {
+      ipAddr = ipAddr.split(',')[0].trim();
+    }
+
+    if (ipAddr === '::1') ipAddr = '127.0.0.1';
+
+    const result = await paymentService.createPayment({
       method,
-      amount: parseFloat(amount),
+      amount: Number(amount),
       orderId,
       description,
-      userId: req.user?._id || 'demo-user',
-      ipAddress,
+      ipAddress: ipAddr,
       returnUrl: `${req.protocol}://${req.get(
         'host',
       )}/api/payment/callback/${method}`,
@@ -26,38 +38,38 @@ exports.createPayment = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: paymentResult,
-      message: 'Tạo thanh toán thành công',
+      data: result,
     });
-  } catch (error) {
-    console.error('Error creating payment:', error);
+  } catch (err) {
+    console.error('Create payment error:', err);
     return res.status(500).json({
       success: false,
-      message: 'Lỗi khi tạo thanh toán',
-      error: error.message,
+      message: err.message || 'Create payment failed',
     });
   }
 };
 
-// Callback từ gateway
+/**
+ * Callback từ payment gateway
+ */
 exports.paymentCallback = async (req, res) => {
   try {
-    // const { method } = req.params;
+    const { method } = req.params; // vnpay / paypal
     const queryParams = req.query;
 
-    const result = await paymentService.verifyPayment('vnpay', queryParams);
+    const result = await paymentService.verifyPayment(method, queryParams);
 
     if (result.success) {
-      return res.redirect('/payment/success?orderId=' + result.orderId);
+      return res.redirect(`/payment/success?orderId=${result.orderId}`);
     }
 
     return res.redirect(
-      '/payment/failed?message=' + encodeURIComponent(result.message),
+      `/payment/failed?message=${encodeURIComponent(result.message)}`,
     );
-  } catch (error) {
-    console.error('Payment callback error:', error);
-    res.redirect(
-      '/payment/failed?message=' + encodeURIComponent('Lỗi xử lý callback'),
+  } catch (err) {
+    console.error('Payment callback error:', err);
+    return res.redirect(
+      `/payment/failed?message=${encodeURIComponent('Callback error')}`,
     );
   }
 };

@@ -1,16 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const paymentController = require('../controllers/paymentController');
 
-const {
-  createPayment,
-  paymentCallback,
-} = require('../controllers/paymentController');
 const validateCreatePayment = require('../middleware/validateCreatePayment');
 
-router.post('/create', validateCreatePayment, createPayment);
-
-// Callback từ gateway (VNPay / PayPal)
-// router.get('/callback/:method', paymentCallback);
-router.get('/vnpay_return', paymentCallback);
+router.post('/create', validateCreatePayment, paymentController.createPayment);
+router.get('/api/payment/callback/:method', paymentController.paymentCallback);
 
 module.exports = router;

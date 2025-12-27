@@ -1,9 +1,9 @@
 const VNPayStrategy = require('./strategies/vnpayStrategy');
-// const PayPalStrategy = require('./strategies/paypalStrategy');
+const PayPalStrategy = require('./strategies/paypalStrategy');
 
 const strategies = {
   vnpay: new VNPayStrategy(),
-  //   paypal: new PayPalStrategy(),
+  paypal: new PayPalStrategy(),
 };
 
 const getStrategy = (method) => {
