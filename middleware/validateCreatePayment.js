@@ -1,24 +1,29 @@
 module.exports = (req, res, next) => {
+  // 1. Kiểm tra body có tồn tại không
   if (!req.body) {
-    return res.json(400).json({
+    return res.status(400).json({
       success: false,
       message: 'Request body is missing',
     });
   }
 
-  const { method, amount, orderId } = req.body;
+  const { method } = req.body;
 
-  if (!method || !amount || !orderId) {
+  // 2. Logic MỚI: Chỉ bắt buộc phải có method
+  // (amount và orderId đã được chuyển sang xử lý tự động tại Controller)
+  if (!method) {
     return res.status(400).json({
       success: false,
-      message: 'Thiếu thông tin bắt buộc: method, amount, orderId',
+      message: 'Thiếu thông tin bắt buộc: method',
     });
   }
 
-  if (isNaN(amount) || amount <= 0) {
+  // 3. Kiểm tra method có hợp lệ không
+  const validMethods = ['vnpay', 'paypal'];
+  if (!validMethods.includes(method)) {
     return res.status(400).json({
       success: false,
-      message: 'Số tiền không hợp lệ',
+      message: 'Phương thức thanh toán không hợp lệ (chỉ chấp nhận: vnpay, paypal)',
     });
   }
 

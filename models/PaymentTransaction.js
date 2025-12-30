@@ -9,9 +9,24 @@ const PaymentTransactionSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ['vnpay, paypal'],
+      enum: ['vnpay', 'paypal'],
       require: true,
     },
+
+
+    // --- CẬP NHẬT ĐỂ HỖ TRỢ GIỎ HÀNG ---
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    // Thay vì 1 khóa, ta lưu danh sách các khóa học đã mua trong giao dịch này
+    items: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Course'
+    }],
+
+
     transactionId: {
       type: String, // vnp_TxnRef / paypal orderId
       // required: false,

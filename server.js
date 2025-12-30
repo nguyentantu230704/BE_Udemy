@@ -52,6 +52,26 @@ app.use((err, req, res, next) => {
   });
 });
 
+
+app.get('/payment/success', (req, res) => {
+  res.send(`
+        <div style="text-align: center; padding-top: 50px;">
+            <h1 style="color: green;">✅ Thanh toán thành công!</h1>
+            <p>Mã đơn hàng: <b>${req.query.orderId}</b></p>
+            <p>Khóa học đã được kích hoạt.</p>
+        </div>
+    `);
+});
+
+app.get('/payment/failed', (req, res) => {
+  res.send(`
+        <div style="text-align: center; padding-top: 50px;">
+            <h1 style="color: red;">❌ Thanh toán thất bại</h1>
+            <p>Lý do: <b style="color: red;">${req.query.message}</b></p>
+        </div>
+    `);
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT} ✅`);
