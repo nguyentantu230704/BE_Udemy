@@ -24,6 +24,14 @@ const userSchema = new mongoose.Schema({
     resetPasswordToken: String,
     resetPasswordExpire: Date,
 
+    // --- XÁC THỰC EMAIL (MỚI) ---
+    isVerified: {
+        type: Boolean,
+        default: false, // Mặc định chưa kích hoạt
+    },
+    verificationToken: String,
+    verificationTokenExpire: Date,
+
 }, { timestamps: true });
 
 
@@ -43,5 +51,21 @@ userSchema.methods.getResetPasswordToken = function () {
 
     return resetToken; // Trả về token gốc để gửi qua email
 };
+
+// --- Method MỚI: Tạo Token kích hoạt email ---
+userSchema.methods.getVerificationToken = function () {
+    const token = crypto.randomBytes(20).toString('hex');
+
+    this.verificationToken = crypto
+        .createHash('sha256')
+        .update(token)
+        .digest('hex');
+
+    this.verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // Hết hạn sau 24h
+
+    return token;
+};
+
+
 
 module.exports = mongoose.model('User', userSchema);
