@@ -58,6 +58,10 @@ const PaymentTransactionSchema = new mongoose.Schema(
     paidAt: {
       type: Date,
     },
+
+    couponCode: { type: String }, // Lưu mã giảm giá đã dùng
+    discountAmount: { type: Number, default: 0 }, // Số tiền được giảm
+
   },
   {
     timestamps: true, // createdAt, updatedAt

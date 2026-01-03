@@ -1,6 +1,8 @@
 const paymentService = require('../service/paymentService');
 const User = require('../models/User');
 const PaymentTransaction = require('../models/PaymentTransaction');
+const Coupon = require('../models/Coupon');
+const Course = require('../models/Course');
 /**
  * Tạo payment (VNPay / PayPal / ...)
  * Hỗ trợ thanh toán toàn bộ giỏ hàng
@@ -134,5 +136,124 @@ exports.getTransactionDetail = async (req, res) => {
   } catch (error) {
     console.error("Get Transaction Error:", error);
     return res.status(500).json({ success: false, message: 'Lỗi server' });
+  }
+};
+
+// @desc    Kiểm tra mã giảm giá (Logic chi tiết: Tồn tại -> Hết hạn -> Khóa học)
+// @route   POST /api/payment/check-coupon
+exports.checkCoupon = async (req, res) => {
+  try {
+    const { code, courseIds } = req.body;
+
+    // 1. Tìm mã giảm giá (Chưa check ngày hết hạn vội)
+    const coupon = await Coupon.findOne({
+      code: code.toUpperCase(),
+      isActive: true,
+      // expiryDate: { $gt: Date.now() } <--- BỎ DÒNG NÀY ĐI
+    }).populate('course');
+
+    // 2. Check: Mã có tồn tại không?
+    if (!coupon) {
+      return res.status(404).json({ success: false, message: 'Mã giảm giá không tồn tại' });
+    }
+
+    // 3. Check: Mã có hết hạn không? (Logic MỚI)
+    if (new Date() > new Date(coupon.expiryDate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tiếc quá! Mã giảm giá này đã hết hạn sử dụng.'
+      });
+    }
+
+    // 4. Check: Mã có áp dụng cho khóa học trong giỏ không?
+    if (!courseIds.includes(coupon.course._id.toString())) {
+      return res.status(400).json({
+        success: false,
+        message: `Mã này chỉ áp dụng cho khóa học: ${coupon.course.title}`
+      });
+    }
+
+    // 5. Nếu mọi thứ OK
+    res.json({
+      success: true,
+      data: {
+        code: coupon.code,
+        discountPercent: coupon.discountPercent,
+        courseId: coupon.course._id
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+exports.createPaymentUrl = async (req, res) => {
+  try {
+    const { method, items, couponCode } = req.body;
+
+    // 1. Xử lý IP Address chuẩn
+    let ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    if (typeof ipAddr === 'string' && ipAddr.includes(',')) ipAddr = ipAddr.split(',')[0].trim();
+    if (ipAddr === '::1') ipAddr = '127.0.0.1';
+
+    // 2. Tính tiền từ DB
+    const courses = await Course.find({ _id: { $in: items } });
+    if (courses.length === 0) return res.status(400).json({ message: 'Không tìm thấy khóa học' });
+
+    let totalAmount = courses.reduce((acc, course) => acc + course.price, 0);
+    let discountAmount = 0;
+    let finalCouponCode = null;
+
+    // Logic Coupon
+    if (couponCode) {
+      const coupon = await Coupon.findOne({
+        code: couponCode.toUpperCase(),
+        isActive: true,
+        expiryDate: { $gt: Date.now() }
+      });
+
+      if (coupon) {
+        const targetCourse = courses.find(c => c._id.toString() === coupon.course.toString());
+        if (targetCourse) {
+          const discount = (targetCourse.price * coupon.discountPercent) / 100;
+          discountAmount = discount;
+          totalAmount = totalAmount - discount;
+          finalCouponCode = couponCode;
+        }
+      }
+    }
+
+    if (totalAmount < 0) totalAmount = 0;
+
+    // 3. FIX LỖI Ở ĐÂY: Tạo returnUrl động
+    // URL để VNPay gọi lại sau khi thanh toán xong
+    const returnUrl = `${req.protocol}://${req.get('host')}/api/payment/callback/${method}`;
+
+    // 4. Chuẩn bị payload khớp chính xác với vnpayStrategy.js
+    const payload = {
+      method,
+      amount: totalAmount,
+      orderId: `ORDER_${new Date().getTime()}`,
+
+      // SỬA TÊN BIẾN CHO KHỚP STRATEGY:
+      description: `Thanh toan don hang ${items.length} khoa hoc`, // Cũ là 'orderInfo' -> Sai
+      ipAddress: ipAddr,                                          // Cũ là 'ipAddr' -> Sai
+      returnUrl: returnUrl,                                       // Cũ bị thiếu -> Gây lỗi 03
+
+      items,
+      userId: req.user._id,
+      couponCode: finalCouponCode,
+      discountAmount: discountAmount
+    };
+
+    const result = await paymentService.createPayment(payload);
+
+    res.json(result);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Lỗi tạo thanh toán: ' + error.message });
   }
 };
