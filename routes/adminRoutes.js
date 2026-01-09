@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/authMiddleware');
-const { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse } = require('../controllers/adminController');
+const { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse, getSystemStats, getPayoutRequests, processPayoutRequest, getAllCourses,
+    deleteCourseByAdmin } = require('../controllers/adminController');
 const {
     getAllCategories,
     createCategory,
@@ -12,6 +13,13 @@ const {
 // Tất cả các route dưới đây đều cần login và quyền admin
 router.use(protect);
 router.use(admin);
+
+// --- DASHBOARD ---
+router.get('/stats', getSystemStats);
+
+// --- PAYOUTS ---
+router.get('/payouts', getPayoutRequests);
+router.put('/payouts/:id', processPayoutRequest);
 
 router.get('/stats', getAdminStats);
 router.get('/users', getAllUsers);
@@ -28,5 +36,8 @@ router.delete('/categories/:id', deleteCategory);
 
 // Route Gỡ khóa học
 router.delete('/users/:userId/courses/:courseId', removeUserCourse);
+
+router.get('/courses', getAllCourses);
+router.delete('/courses/:id', deleteCourseByAdmin);
 
 module.exports = router;

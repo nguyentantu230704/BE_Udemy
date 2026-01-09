@@ -3,6 +3,9 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const CourseProgress = require('../models/CourseProgress');
 const bcrypt = require('bcryptjs');
+const PaymentTransaction = require('../models/PaymentTransaction');
+const PayoutRequest = require('../models/PayoutRequest');
+const Category = require('../models/Category');
 
 // Hàm hỗ trợ lấy public_id từ URL Cloudinary
 const getPublicIdFromUrl = (url) => {
@@ -252,5 +255,108 @@ const removeUserCourse = async (req, res) => {
     }
 };
 
+// @desc    Lấy thống kê tổng quan (Dashboard)
+// @route   GET /api/admin/stats
+const getSystemStats = async (req, res) => {
+    try {
+        const totalUsers = await User.countDocuments();
+        const totalCourses = await Course.countDocuments();
 
-module.exports = { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse };
+        // 1. Lấy tổng tiền giao dịch thành công (Doanh số toàn sàn - 100%)
+        const revenueStats = await PaymentTransaction.aggregate([
+            { $match: { status: 'paid' } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+        ]);
+        const totalGrossRevenue = revenueStats.length > 0 ? revenueStats[0].total : 0;
+
+        // 2. Tính lợi nhuận của Admin (30%)
+        const totalNetProfit = totalGrossRevenue * 0.3;
+
+        // 3. Đếm yêu cầu rút tiền
+        const pendingPayouts = await PayoutRequest.countDocuments({ status: 'pending' });
+
+        res.json({
+            success: true,
+            data: {
+                totalUsers,
+                totalCourses,
+                totalRevenue: totalGrossRevenue, // Hiển thị tổng doanh số
+                totalProfit: totalNetProfit,     // Hiển thị lợi nhuận thực (30%)
+                pendingPayouts
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// @desc    Lấy danh sách yêu cầu rút tiền
+// @route   GET /api/admin/payouts
+const getPayoutRequests = async (req, res) => {
+    try {
+        const requests = await PayoutRequest.find()
+            .populate('instructor', 'name email avatar') // Lấy thông tin giảng viên
+            .sort({ createdAt: -1 }); // Mới nhất lên đầu
+
+        res.json({ success: true, data: requests });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// @desc    Xử lý yêu cầu rút tiền (Duyệt / Từ chối)
+// @route   PUT /api/admin/payouts/:id
+const processPayoutRequest = async (req, res) => {
+    try {
+        const { status, adminComment } = req.body; // status: 'approved' | 'rejected'
+        const { id } = req.params;
+
+        const payout = await PayoutRequest.findById(id);
+        if (!payout) return res.status(404).json({ success: false, message: "Không tìm thấy yêu cầu" });
+
+        if (payout.status !== 'pending') {
+            return res.status(400).json({ success: false, message: "Yêu cầu này đã được xử lý trước đó" });
+        }
+
+        payout.status = status;
+        payout.adminComment = adminComment || (status === 'approved' ? 'Đã chuyển khoản' : 'Từ chối');
+        payout.processedAt = Date.now();
+
+        await payout.save();
+
+        // (Tùy chọn) Gửi email thông báo cho giảng viên ở đây
+
+        res.json({ success: true, message: "Đã cập nhật trạng thái", data: payout });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// --- MỚI: Lấy tất cả khóa học cho Admin ---
+const getAllCourses = async (req, res) => {
+    try {
+        const courses = await Course.find()
+            .populate('instructor', 'name email')
+            .populate('category', 'name')
+            .sort({ createdAt: -1 });
+        res.json({ success: true, data: courses });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// --- MỚI: Admin xóa khóa học (Bất chấp chủ sở hữu) ---
+const deleteCourseByAdmin = async (req, res) => {
+    try {
+        await Course.findByIdAndDelete(req.params.id);
+        // (Tùy chọn) Xóa thêm lesson, section liên quan nếu cần kỹ hơn
+        res.json({ success: true, message: "Đã xóa khóa học" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+module.exports = {
+    getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse, getSystemStats, getPayoutRequests, processPayoutRequest, getAllCourses,
+    deleteCourseByAdmin
+};
