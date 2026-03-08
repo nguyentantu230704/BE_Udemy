@@ -29,8 +29,16 @@ const createLesson = async (req, res) => {
                     duration: req.body.duration || 0
                 };
             }
+        } else if (type === 'document') {
+            // THÊM ĐOẠN NÀY CHO PDF
+            if (req.file) {
+                lessonData.document = {
+                    url: req.file.path,
+                    public_id: req.file.filename
+                };
+            }
         } else if (type === 'text') {
-            lessonData.content = content; // Lưu nội dung text
+            lessonData.content = content;
         } else if (type === 'quiz') {
             if (quizQuestions) {
                 lessonData.quizQuestions = JSON.parse(quizQuestions);
@@ -69,6 +77,16 @@ const deleteLesson = async (req, res) => {
                 console.log("Lỗi xóa video trên Cloudinary:", err);
             }
         }
+        else if (lesson.type === 'document' && lesson.document && lesson.document.public_id) {
+            try {
+                // Cloudinary mặc định lưu PDF dưới dạng 'image' hoặc 'raw' khi để auto. 
+                // Không truyền resource_type thì nó sẽ tự hiểu là image (đúng với PDF)
+                await cloudinary.uploader.destroy(lesson.document.public_id);
+            } catch (err) {
+                console.log("Lỗi xóa PDF trên Cloudinary:", err);
+            }
+        }
+
 
         // 2. Xóa ID bài học khỏi mảng lessons trong Section
         await Section.findByIdAndUpdate(lesson.section, {

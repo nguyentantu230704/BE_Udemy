@@ -7,7 +7,7 @@ const lessonSchema = new mongoose.Schema({
     //  THÊM TRƯỜNG PHÂN LOẠI
     type: {
         type: String,
-        enum: ['video', 'text', 'quiz'], // 3 loại bài học
+        enum: ['video', 'text', 'quiz', 'document'], // 4 loại bài học
         default: 'video'
     },
 
@@ -25,6 +25,12 @@ const lessonSchema = new mongoose.Schema({
         url: { type: String },
         public_id: { type: String },
         duration: { type: Number, default: 0 } // Gộp duration vào đây hoặc để ngoài cũng được
+    },
+
+    // THÊM: Object document để lưu file PDF
+    document: {
+        url: { type: String },
+        public_id: { type: String }
     },
 
     content: { type: String }, // Dành cho bài học dạng Text (nếu có)

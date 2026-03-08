@@ -12,10 +12,22 @@ cloudinary.config({
 // 2. Cấu hình kho lưu trữ
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
-    params: {
-        folder: 'udemy-clone',
-        allowed_formats: ['jpg', 'png', 'jpeg', 'mp4', 'mkv'],
-        resource_type: 'auto',
+    params: async (req, file) => {
+        // Tách riêng logic cho file PDF
+        if (file.mimetype === 'application/pdf') {
+            return {
+                folder: 'udemy-clone',
+                format: 'pdf', // Ép buộc Cloudinary giữ đuôi .pdf
+                resource_type: 'image' // Cloudinary yêu cầu lưu PDF dưới dạng image để có thể xem trên web
+            };
+        }
+
+        // Logic mặc định cho Video và Ảnh
+        return {
+            folder: 'udemy-clone',
+            allowed_formats: ['jpg', 'png', 'jpeg', 'mp4', 'mkv'],
+            resource_type: 'auto',
+        };
     },
 });
 

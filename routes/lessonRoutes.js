@@ -6,7 +6,7 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 
 // Route upload video: Field name là 'video'
 // Lưu ý: Upload video lâu hơn ảnh, đừng tắt Postman vội khi đang quay
-router.post('/', protect, authorize('instructor', 'admin'), upload.single('video'), createLesson);
+router.post('/', protect, authorize('instructor', 'admin'), upload.single('file'), createLesson);
 router.delete('/:id', deleteLesson);
 
 module.exports = router;

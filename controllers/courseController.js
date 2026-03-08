@@ -101,7 +101,7 @@ const getCourseBySlug = async (req, res) => {
                 path: 'sections',
                 populate: {
                     path: 'lessons',
-                    select: 'title slug video isPreview duration type content quizQuestions order'
+                    select: 'title slug video isPreview duration type content quizQuestions order document'
                 }
             });
 
