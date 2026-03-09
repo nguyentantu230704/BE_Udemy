@@ -25,7 +25,7 @@ const registerUser = async (req, res) => {
         await user.save();
 
         // Tạo link kích hoạt
-        const verifyUrl = `${process.env.FE_URL}/verify-email/${verificationToken}`;
+        const verifyUrl = `${process.env.CLIENT_URL}/verify-email/${verificationToken}`;
 
         const message = `Chào mừng bạn đến với Udemy Clone! Vui lòng click vào link dưới đây để kích hoạt tài khoản:\n\n ${verifyUrl}`;
 
@@ -197,7 +197,7 @@ const forgotPassword = async (req, res) => {
         await user.save({ validateBeforeSave: false });
 
         // Tạo link reset (Trỏ về Frontend)
-        const resetUrl = `${process.env.FE_URL}/reset-password/${resetToken}`;
+        const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
 
         const message = `Bạn nhận được email này vì yêu cầu đặt lại mật khẩu. Click vào link dưới đây:\n\n ${resetUrl}`;
         const html = `

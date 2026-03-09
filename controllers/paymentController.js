@@ -90,7 +90,7 @@ exports.paymentCallback = async (req, res) => {
 
     // --- SỬA ĐỔI Ở ĐÂY: Dùng FE_URL để redirect về Client ---
     // Lấy URL frontend từ biến môi trường (hoặc mặc định là localhost:3000)
-    const clientUrl = process.env.FE_URL || 'http://localhost:3000';
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
 
     if (result.success) {
       // Chuyển hướng về trang THÀNH CÔNG của Frontend
@@ -106,7 +106,7 @@ exports.paymentCallback = async (req, res) => {
     console.error('Payment callback error:', err);
 
     // Trường hợp lỗi Crash cũng redirect về Frontend báo lỗi
-    const clientUrl = process.env.FE_URL || 'http://localhost:3000';
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     return res.redirect(
       `${clientUrl}/payment/failed?message=${encodeURIComponent('Hệ thống gặp lỗi khi xử lý thanh toán')}`
     );
