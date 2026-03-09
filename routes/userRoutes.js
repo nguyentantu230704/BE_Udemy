@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getUserProfile, enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart, changePassword } = require('../controllers/userController');
+const { getUserProfile, enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart, requestChangePassword, verifyChangePassword } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 const { upload } = require('../config/cloudinary'); // Import bộ upload
 
@@ -16,7 +16,8 @@ router.get('/my-courses', protect, getMyCourses);
 // PUT /api/users/profile - Cập nhật thông tin (có upload ảnh)
 router.put('/profile', protect, upload.single('avatar'), updateUserProfile);
 // Route đổi mật khẩu riêng
-router.put('/change-password', protect, changePassword);
+router.post('/request-change-password', protect, requestChangePassword);
+router.put('/verify-change-password', protect, verifyChangePassword);
 
 // --- ROUTES GIỎ HÀNG (MỚI) ---
 router.get('/cart', protect, getCart);

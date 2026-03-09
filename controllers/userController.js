@@ -2,7 +2,7 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const bcrypt = require('bcryptjs');
 const CourseProgress = require('../models/CourseProgress');
-
+const sendEmail = require('../utils/sendEmail');
 
 // @desc    Đăng ký khóa học (Miễn phí / Enroll)
 // @route   POST /api/users/enroll
@@ -306,11 +306,11 @@ const removeFromCart = async (req, res) => {
 };
 
 
-// @desc    Đổi mật khẩu (Riêng biệt)
-// @route   PUT /api/users/change-password
-const changePassword = async (req, res) => {
+// @desc    BƯỚC 1: Yêu cầu đổi mật khẩu (Gửi OTP qua email)
+// @route   POST /api/users/request-change-password
+const requestChangePassword = async (req, res) => {
     try {
-        const { currentPassword, newPassword } = req.body;
+        const { currentPassword } = req.body;
 
         // 1. Tìm user và lấy password hash
         const user = await User.findById(req.user._id).select('+password');
@@ -321,10 +321,72 @@ const changePassword = async (req, res) => {
             return res.status(400).json({ success: false, message: "Mật khẩu hiện tại không đúng" });
         }
 
-        // 3. Hash mật khẩu mới
+        // 3. Tạo mã OTP 6 số ngẫu nhiên
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // 4. Lưu OTP vào DB với hạn sử dụng 5 phút
+        user.otpCode = otp;
+        user.otpExpire = Date.now() + 5 * 60 * 1000;
+        await user.save();
+
+        // 5. Gửi email chứa mã OTP
+        const message = `Mã OTP xác nhận đổi mật khẩu của bạn là: ${otp}. Mã này có hiệu lực trong 5 phút.`;
+        const html = `
+        <div style="font-family: Arial, sans-serif; background-color: #f3f4f6; padding: 40px 20px;">
+            <div style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div style="background-color: #9333ea; padding: 20px; text-align: center;">
+                    <h2 style="color: #ffffff; margin: 0;">Xác thực bảo mật 2FA</h2>
+                </div>
+                <div style="padding: 30px; text-align: center; color: #374151;">
+                    <p style="font-size: 16px; margin-bottom: 20px;">Bạn đang thực hiện yêu cầu đổi mật khẩu. Vui lòng sử dụng mã OTP dưới đây để xác nhận:</p>
+                    <div style="background-color: #f3e8ff; border: 2px dashed #9333ea; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+                        <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #7e22ce;">${otp}</span>
+                    </div>
+                    <p style="font-size: 14px; color: #ef4444;">* Mã này sẽ hết hạn sau 5 phút.</p>
+                    <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">Nếu bạn không thực hiện yêu cầu này, vui lòng đổi mật khẩu tài khoản email ngay lập tức để bảo đảm an toàn.</p>
+                </div>
+            </div>
+        </div>
+        `;
+
+        await sendEmail({
+            email: user.email,
+            subject: 'Mã OTP Xác Nhận Đổi Mật Khẩu - Udemy Clone',
+            message,
+            html
+        });
+
+        res.json({ success: true, message: "Mã OTP đã được gửi đến email" });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+// @desc    BƯỚC 2: Xác nhận OTP và lưu mật khẩu mới
+// @route   PUT /api/users/verify-change-password
+const verifyChangePassword = async (req, res) => {
+    try {
+        const { otp, newPassword } = req.body;
+        const user = await User.findById(req.user._id);
+
+        // 1. Kiểm tra mã OTP có khớp và còn hạn không
+        if (!user.otpCode || user.otpCode !== otp) {
+            return res.status(400).json({ success: false, message: "Mã OTP không đúng" });
+        }
+
+        if (user.otpExpire < Date.now()) {
+            return res.status(400).json({ success: false, message: "Mã OTP đã hết hạn" });
+        }
+
+        // 2. Mã hóa và lưu mật khẩu mới
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(newPassword, salt);
 
+        // 3. Xóa dấu vết OTP sau khi dùng xong
+        user.otpCode = undefined;
+        user.otpExpire = undefined;
         await user.save();
 
         res.json({ success: true, message: "Đổi mật khẩu thành công" });
@@ -337,5 +399,8 @@ const changePassword = async (req, res) => {
 
 
 
-
-module.exports = { enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart, getUserProfile, changePassword };
+module.exports = {
+    enrollCourse, getMyCourses, updateUserProfile, getCart,
+    addToCart, removeFromCart, getUserProfile,
+    requestChangePassword, verifyChangePassword // <--- Thêm vào đây
+};

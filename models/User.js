@@ -11,6 +11,10 @@ const userSchema = new mongoose.Schema({
         enum: ['student', 'instructor', 'admin'],
         default: 'student'
     },
+
+    otpCode: String,
+    otpExpire: Date,
+
     avatar: { type: String, default: '' },
     // Mảng chứa ID các khóa học đã mua
     enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
