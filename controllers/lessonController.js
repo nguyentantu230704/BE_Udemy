@@ -10,7 +10,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const createLesson = async (req, res) => {
     try {
         // Lấy dữ liệu từ req.body (Do dùng multer nên data text cũng nằm trong body)
-        const { title, sectionId, type, content, quizQuestions, isPreview } = req.body;
+        const { title, sectionId, type, content, quizQuestions, isPreview, passPercent } = req.body;
 
         if (!title || !sectionId) {
             return res.status(400).json({ success: false, message: "Tiêu đề và Chương học là bắt buộc" });
@@ -21,6 +21,7 @@ const createLesson = async (req, res) => {
             section: sectionId,
             type: type || 'video', // Nhận type từ form
             isPreview: isPreview === 'true',
+            passPercent: passPercent ? Number(passPercent) : 80
         };
 
         // Xử lý theo loại

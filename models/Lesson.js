@@ -11,6 +11,8 @@ const lessonSchema = new mongoose.Schema({
         default: 'video'
     },
 
+    passPercent: { type: Number, default: 80 },
+
     //  DỮ LIỆU CHO TRẮC NGHIỆM (QUIZ)
     quizQuestions: [{
         question: { type: String, required: true },
