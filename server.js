@@ -22,7 +22,15 @@ const app = express();
 // Middlewares
 app.use(express.json()); // Để đọc JSON từ body request
 app.use(express.urlencoded({ extended: true }));
-app.use(cors()); // Cho phép Frontend gọi API
+// Cho phép Frontend (Vercel hoặc Localhost) gọi API và gửi kèm Token/Cookie
+app.use(cors({
+  origin: [
+    'http://localhost:3000', // Dành cho lúc test trên máy tính
+    process.env.CLIENT_URL   // Dành cho link Vercel thật sau khi deploy
+  ],
+  credentials: true, // Bắt buộc phải có cái này thì mới truyền JWT qua header được
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+}));
 app.use(morgan('dev')); // Log request
 app.use('/api/categories', categoryRoutes);
 app.use('/api/sections', sectionRoutes);
