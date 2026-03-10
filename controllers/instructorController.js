@@ -3,93 +3,93 @@ const Course = require('../models/Course');
 const PaymentTransaction = require('../models/PaymentTransaction');
 const User = require('../models/User');
 
-// Giả sử phí sàn là 30%, Giảng viên nhận 70%
-const INSTRUCTOR_SHARE = 0.7;
 
 // @desc    Lấy thống kê tổng quan (Dashboard)
-// @route   GET /api/instructor/dashboard
 const getInstructorDashboard = async (req, res) => {
     try {
         const instructorId = req.user._id;
-        const INSTRUCTOR_SHARE = 0.7; // 70%
 
-        // 1. Tìm tất cả khóa học của giảng viên này
+        const instructor = await User.findById(instructorId).select('adminCommissionRate');
+        const adminRate = instructor.adminCommissionRate !== undefined ? instructor.adminCommissionRate : 30;
+        const instructorShareRate = (100 - adminRate) / 100;
+
         const myCourses = await Course.find({ instructor: instructorId }).select('_id title price totalStudents thumbnail');
         const myCourseIds = myCourses.map(c => c._id.toString());
 
         if (myCourseIds.length === 0) {
-            return res.json({ success: true, data: { totalRevenue: 0, totalStudents: 0, monthlyRevenue: [], bestSellers: [] } });
+            return res.json({ success: true, data: { grossRevenue: 0, netRevenue: 0, commissionRate: adminRate, totalStudents: 0, monthlyRevenue: [], bestSellers: [], salesHistory: [] } });
         }
 
-        // 2. Tìm tất cả giao dịch ĐÃ THANH TOÁN có chứa khóa học của giảng viên
+        // --- BỔ SUNG: Populate thêm 'title' cho khóa học và 'user' để lấy tên học viên ---
         const transactions = await PaymentTransaction.find({
             status: 'paid',
             items: { $in: myCourseIds }
-        }).populate('items', 'price _id instructor');
+        })
+            .populate('items', 'price _id instructor title') // Lấy thêm title của khóa học
+            .populate('user', 'name email avatar')           // Lấy thông tin người mua
+            .sort({ createdAt: -1 });                        // Sắp xếp mới nhất lên đầu
 
-        // 3. Tính toán doanh thu
-        let totalRevenue = 0;
+        let grossRevenue = 0;
+        let netRevenue = 0;
         let monthlyStats = {};
 
-        transactions.forEach(trans => {
-            // --- BƯỚC QUAN TRỌNG: Tính tổng giá gốc của cả đơn hàng này ---
-            // Để làm mẫu số phân chia tỷ lệ tiền
-            const cartOriginalTotal = trans.items.reduce((sum, item) => sum + (item.price || 0), 0);
+        // --- MỚI: Mảng chứa lịch sử giao dịch ---
+        let salesHistory = [];
 
-            // Nếu đơn hàng 0đ hoặc lỗi dữ liệu thì bỏ qua để tránh chia cho 0
+        transactions.forEach(trans => {
+            const cartOriginalTotal = trans.items.reduce((sum, item) => sum + (item.price || 0), 0);
             if (cartOriginalTotal === 0 && trans.amount > 0) return;
 
             trans.items.forEach(course => {
-                // Chỉ tính doanh thu cho khóa học CỦA MÌNH
                 if (course.instructor.toString() === instructorId.toString()) {
-
+                    let portionPaid = 0;
                     let earning = 0;
 
-                    if (trans.amount === 0) {
-                        // Trường hợp khóa học miễn phí hoặc đơn hàng 0đ
-                        earning = 0;
-                    } else {
-                        // --- SỬA LOGIC TẠI ĐÂY ---
-                        // Tính tỷ trọng: (Giá khóa này / Tổng giá gốc giỏ hàng) * Số tiền khách thực trả
-                        const portionPaid = (course.price / cartOriginalTotal) * trans.amount;
-
-                        // Giảng viên nhận 70% của phần tiền thực trả đó
-                        earning = portionPaid * INSTRUCTOR_SHARE;
+                    if (trans.amount > 0) {
+                        portionPaid = (course.price / cartOriginalTotal) * trans.amount;
+                        earning = portionPaid * instructorShareRate;
                     }
 
-                    totalRevenue += earning;
+                    grossRevenue += portionPaid;
+                    netRevenue += earning;
 
-                    // Group theo tháng
-                    const date = new Date(trans.updatedAt || trans.createdAt); // Nên dùng updatedAt (thời điểm thanh toán xong)
+                    const date = new Date(trans.updatedAt || trans.createdAt);
                     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
                     if (!monthlyStats[monthKey]) monthlyStats[monthKey] = 0;
                     monthlyStats[monthKey] += earning;
+
+                    // --- MỚI: Đẩy thông tin giao dịch vào mảng ---
+                    salesHistory.push({
+                        _id: trans._id.toString() + course._id.toString(), // Tạo ID giả cho list key
+                        date: date,
+                        student: trans.user ? { name: trans.user.name, email: trans.user.email, avatar: trans.user.avatar } : { name: 'Khách', email: '' },
+                        courseTitle: course.title,
+                        grossAmount: Math.round(portionPaid),
+                        netAmount: Math.round(earning)
+                    });
                 }
             });
         });
 
-        // 4. Chuyển đổi monthlyStats sang mảng cho biểu đồ
         const monthlyRevenue = Object.keys(monthlyStats).map(key => ({
             month: key,
             revenue: Math.round(monthlyStats[key])
         })).sort((a, b) => a.month.localeCompare(b.month));
 
-        // 5. Tìm khóa học bán chạy nhất
-        const bestSellers = myCourses
-            .sort((a, b) => b.totalStudents - a.totalStudents)
-            .slice(0, 5);
-
-        // 6. Tính tổng học viên
+        const bestSellers = myCourses.sort((a, b) => b.totalStudents - a.totalStudents).slice(0, 5);
         const totalStudents = myCourses.reduce((acc, curr) => acc + curr.totalStudents, 0);
 
         res.json({
             success: true,
             data: {
-                totalRevenue: Math.round(totalRevenue), // Làm tròn số tiền cuối cùng
+                grossRevenue: Math.round(grossRevenue),
+                netRevenue: Math.round(netRevenue),
+                commissionRate: adminRate,
                 totalStudents,
                 monthlyRevenue,
-                bestSellers
+                bestSellers,
+                salesHistory // --- Trả mảng này về cho Frontend ---
             }
         });
 
@@ -98,6 +98,9 @@ const getInstructorDashboard = async (req, res) => {
         res.status(500).json({ success: false, message: "Lỗi thống kê" });
     }
 };
+
+
+
 
 // @desc    Lấy danh sách khóa học của giảng viên (Để hiển thị dropdown chọn)
 // @route   GET /api/instructor/courses-select
@@ -114,9 +117,13 @@ const getInstructorCoursesSelect = async (req, res) => {
     }
 };
 
-// --- HÀM PHỤ: Tính toán số dư khả dụng (Dùng chung) ---
+// --- HÀM PHỤ: Tính toán số dư khả dụng (Sửa lại logic 70% cứng) ---
 const calculateBalance = async (instructorId) => {
-    // 1. Tính TỔNG THU NHẬP (Logic 70% chuẩn)
+    // Lấy tỉ lệ từ DB
+    const instructor = await User.findById(instructorId).select('adminCommissionRate');
+    const adminRate = instructor.adminCommissionRate !== undefined ? instructor.adminCommissionRate : 30;
+    const instructorShareRate = (100 - adminRate) / 100;
+
     const myCourses = await Course.find({ instructor: instructorId }).select('_id price');
     const myCourseIds = myCourses.map(c => c._id.toString());
 
@@ -125,7 +132,7 @@ const calculateBalance = async (instructorId) => {
         items: { $in: myCourseIds }
     }).populate('items', 'price instructor');
 
-    let totalEarned = 0;
+    let totalEarned = 0; // TỔNG THỰC NHẬN
     transactions.forEach(trans => {
         const cartTotal = trans.items.reduce((sum, item) => sum + (item.price || 0), 0);
         if (cartTotal === 0 && trans.amount > 0) return;
@@ -135,26 +142,26 @@ const calculateBalance = async (instructorId) => {
                 let earning = 0;
                 if (trans.amount > 0) {
                     const portion = (item.price / cartTotal) * trans.amount;
-                    earning = Math.round(portion * 0.7); // 70%
+                    earning = portion * instructorShareRate; // Dùng tỉ lệ động
                 }
                 totalEarned += earning;
             }
         });
     });
 
-    // 2. Tính TỔNG ĐÃ RÚT (Bao gồm 'approved' VÀ 'pending')
-    // Phải trừ cả tiền đang chờ duyệt để tránh rút trùng
     const payouts = await PayoutRequest.find({
         instructor: instructorId,
         status: { $in: ['approved', 'pending'] }
     });
 
     const totalWithdrawn = payouts.reduce((acc, curr) => acc + curr.amount, 0);
-
-    // 3. Số dư khả dụng
     const availableBalance = totalEarned - totalWithdrawn;
 
-    return { totalEarned, totalWithdrawn, availableBalance };
+    return {
+        totalEarned: Math.round(totalEarned),
+        totalWithdrawn,
+        availableBalance: Math.round(availableBalance)
+    };
 };
 
 // @desc    Gửi yêu cầu rút tiền (CÓ KIỂM TRA SỐ DƯ)

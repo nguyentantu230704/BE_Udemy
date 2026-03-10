@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, admin } = require('../middleware/authMiddleware');
 const { getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse, getSystemStats, getPayoutRequests, processPayoutRequest, getAllCourses,
-    deleteCourseByAdmin } = require('../controllers/adminController');
+    deleteCourseByAdmin, updateInstructorCommission } = require('../controllers/adminController');
 const {
     getAllCategories,
     createCategory,
@@ -25,6 +25,7 @@ router.get('/stats', getAdminStats);
 router.get('/users', getAllUsers);
 router.post('/users', createUser);       // <--- Tạo mới
 router.put('/users/:id', updateUser);    // <--- Cập nhật (Cấp quyền)
+router.put('/users/:id/commission', updateInstructorCommission);
 router.delete('/users/:id', deleteUser);
 router.post('/cleanup', cleanupEnrollments);
 

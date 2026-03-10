@@ -16,6 +16,15 @@ const userSchema = new mongoose.Schema({
     otpExpire: Date,
 
     avatar: { type: String, default: '' },
+
+    // --- THÊM TRƯỜNG NÀY: Tỉ lệ % Admin sẽ thu của giảng viên này ---
+    adminCommissionRate: {
+        type: Number,
+        default: 30, // Mặc định Admin lấy 30%, Giảng viên nhận 70%
+        min: 0,
+        max: 100
+    },
+
     // Mảng chứa ID các khóa học đã mua
     enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
     // --- THÊM TRƯỜNG CART ---
