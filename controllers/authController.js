@@ -4,6 +4,10 @@ const sendEmail = require('../utils/sendEmail');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
+
+
 // @desc    Đăng ký (Sửa đổi: Gửi mail kích hoạt)
 // @route   POST /api/auth/register
 const registerUser = async (req, res) => {
@@ -283,5 +287,60 @@ const resetPassword = async (req, res) => {
 };
 
 
+// @desc    Đăng nhập bằng Google
+// @route   POST /api/auth/google
+// @access  Public
+const googleLogin = async (req, res) => {
+    try {
+        const { credential } = req.body; // Mã token từ Frontend (Next.js) gửi xuống
 
-module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail };
+        // 1. Xác thực mã này với server của Google
+        const ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+
+        // 2. Lấy thông tin user từ Google trả về
+        const { email, name, picture } = ticket.getPayload();
+
+        // 3. Kiểm tra xem user này đã có trong Database chưa
+        let user = await User.findOne({ email });
+
+        if (!user) {
+            // NẾU CHƯA CÓ: Tạo tài khoản mới tự động
+            // Tạo một mật khẩu ngẫu nhiên cực mạnh (vì Google User không cần gõ mật khẩu)
+            const randomPassword = crypto.randomBytes(16).toString('hex');
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+            user = await User.create({
+                name: name,
+                email: email,
+                password: hashedPassword,
+                avatar: picture,
+                isVerified: true, // Không cần gửi mail xác thực nữa vì Google đã xác thực rồi
+                authProvider: 'google',
+                role: 'student'
+            });
+        }
+
+        // NẾU ĐÃ CÓ (Hoặc vừa tạo xong): Cấp Token và Đăng nhập thành công
+        res.json({
+            success: true,
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            avatar: user.avatar,
+            token: generateToken(user._id),
+            message: 'Đăng nhập Google thành công'
+        });
+
+    } catch (error) {
+        console.error("Google Login Error:", error);
+        res.status(500).json({ success: false, message: "Xác thực Google thất bại. Vui lòng thử lại!" });
+    }
+};
+
+
+module.exports = { registerUser, loginUser, forgotPassword, resetPassword, verifyEmail, googleLogin };
