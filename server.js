@@ -14,6 +14,8 @@ const progressRoutes = require('./routes/progressRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const instructorRoutes = require('./routes/instructorRoutes');
+const noteRoutes = require('./routes/noteRoutes');
+
 // Config
 connectDB();
 
@@ -41,6 +43,7 @@ app.use('/api/progress', progressRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/instructor', instructorRoutes);
+app.use('/api/notes', noteRoutes);
 
 
 app.get('/', (req, res) => {
