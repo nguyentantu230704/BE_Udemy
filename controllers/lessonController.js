@@ -218,4 +218,66 @@ const debugGeminiModels = async (req, res) => {
     }
 };
 
-module.exports = { createLesson, deleteLesson, generateQuizByAI, debugGeminiModels };
+// @desc    Đọc và tóm tắt file PDF bằng Gemini AI
+// @route   POST /api/lessons/summarize-pdf
+// @access  Private
+const summarizePDF = async (req, res) => {
+    try {
+        const { pdfUrl } = req.body;
+
+        if (!pdfUrl) {
+            return res.status(400).json({ success: false, message: "Không tìm thấy đường dẫn PDF" });
+        }
+
+        // 1. Tải file PDF từ URL (Cloudinary/Drive) về dưới dạng ArrayBuffer
+        const response = await fetch(pdfUrl);
+        if (!response.ok) throw new Error("Không thể tải file PDF từ URL");
+
+        const arrayBuffer = await response.arrayBuffer();
+
+        // 2. Chuyển đổi sang Base64 để gửi cho Gemini
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+        // 3. Khởi tạo Gemini AI (Dùng model 1.5-flash hoặc 2.5-flash vì chúng hỗ trợ đọc File rất tốt)
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        // 4. Prompt yêu cầu tóm tắt
+        const prompt = `
+        Đóng vai một gia sư tận tâm. Hãy đọc tài liệu PDF đính kèm này và tóm tắt những ý chính quan trọng nhất bằng tiếng Việt.
+        Yêu cầu:
+        - Trình bày rõ ràng, chia thành các gạch đầu dòng dễ hiểu.
+        - Giọng văn bám sát nội dung học thuật, súc tích.
+        - Bôi đậm (dùng dấu **) các từ khóa quan trọng.
+        `;
+
+        // 5. Gửi Prompt kèm dữ liệu File PDF nội tuyến (inlineData)
+        const result = await model.generateContent([
+            prompt,
+            {
+                inlineData: {
+                    data: base64Data,
+                    mimeType: "application/pdf"
+                }
+            }
+        ]);
+
+        const summaryText = await result.response.text();
+
+        res.status(200).json({
+            success: true,
+            summary: summaryText
+        });
+
+    } catch (error) {
+        console.error("Lỗi tóm tắt PDF bằng AI:", error);
+        res.status(500).json({
+            success: false,
+            message: "Lỗi khi gọi AI phân tích PDF. Đảm bảo file không quá lớn.",
+            error: error.message
+        });
+    }
+};
+
+// Cập nhật dòng module.exports ở cuối file:
+module.exports = { createLesson, deleteLesson, generateQuizByAI, debugGeminiModels, summarizePDF };
