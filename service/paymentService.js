@@ -30,6 +30,18 @@ const createPayment = async (payload) => {
 };
 
 const verifyPayment = async (method, queryParams) => {
+  const lookupId = queryParams.token || queryParams.vnp_TxnRef;
+  if (lookupId) {
+    const existingTrans = await PaymentTransaction.findOne({
+      $or: [{ orderId: lookupId }, { transactionId: lookupId }]
+    });
+
+    // Nếu DB đã lưu là 'paid' bởi Request đầu tiên, thì chặn ngay lập tức và báo thành công!
+    if (existingTrans && existingTrans.status === 'paid') {
+      return { success: true, orderId: existingTrans.orderId, message: 'Already paid' };
+    }
+  }
+
   const strategy = PaymentFactory.getStrategy(method);
   const verifyResult = await strategy.verifyCallback(queryParams);
 
