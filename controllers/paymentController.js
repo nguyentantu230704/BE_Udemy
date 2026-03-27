@@ -229,7 +229,8 @@ exports.createPaymentUrl = async (req, res) => {
 
     // 3. FIX LỖI Ở ĐÂY: Tạo returnUrl động
     // URL để VNPay gọi lại sau khi thanh toán xong
-    const returnUrl = `${req.protocol}://${req.get('host')}/api/payment/callback/${method}`;
+    const serverUrl = process.env.SERVER_URL || `${req.protocol}://${req.get('host')}`;
+    const returnUrl = `${serverUrl}/api/payment/callback/${method}`;
 
     // 4. Chuẩn bị payload khớp chính xác với vnpayStrategy.js
     const payload = {

@@ -20,6 +20,8 @@ const noteRoutes = require('./routes/noteRoutes');
 connectDB();
 
 const app = express();
+app.set('trust proxy', 1);
+
 
 // Middlewares
 app.use(express.json()); // Để đọc JSON từ body request
