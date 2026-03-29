@@ -31,7 +31,7 @@ const registerUser = async (req, res) => {
         // Tạo link kích hoạt
         const verifyUrl = `${process.env.CLIENT_URL}/verify-email/${verificationToken}`;
 
-        const message = `Chào mừng bạn đến với Udemy Clone! Vui lòng click vào link dưới đây để kích hoạt tài khoản:\n\n ${verifyUrl}`;
+        const message = `Chào mừng bạn đến với SmartLMS! Vui lòng click vào link dưới đây để kích hoạt tài khoản:\n\n ${verifyUrl}`;
 
         const html = `
         <!DOCTYPE html>
@@ -50,13 +50,13 @@ const registerUser = async (req, res) => {
             <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                 
                 <div style="background-color: #9333ea; padding: 30px 20px; text-align: center;">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;">Udemy Clone</h1>
+                    <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;">SmartLMS</h1>
                 </div>
 
                 <div style="padding: 40px 30px;">
                     <h2 style="margin-top: 0; color: #1f2937;">Xin chào ${name},</h2>
                     <p style="color: #4b5563; margin-bottom: 24px;">
-                        Cảm ơn bạn đã đăng ký tài khoản tại <b>Udemy Clone</b>. Chúng tôi rất vui được đồng hành cùng bạn trên hành trình học tập sắp tới.
+                        Cảm ơn bạn đã đăng ký tài khoản tại <b>SmartLMS</b>. Chúng tôi rất vui được đồng hành cùng bạn trên hành trình học tập sắp tới.
                     </p>
                     <p style="color: #4b5563; margin-bottom: 30px;">
                         Để bắt đầu, vui lòng xác thực địa chỉ email của bạn bằng cách nhấn vào nút bên dưới (Link có hiệu lực trong 24 giờ):
@@ -78,10 +78,10 @@ const registerUser = async (req, res) => {
 
                 <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
                     <p style="margin: 0; font-size: 12px; color: #9ca3af;">
-                        Bạn nhận được email này vì đã đăng ký tài khoản tại Udemy Clone.
+                        Bạn nhận được email này vì đã đăng ký tài khoản tại SmartLMS.
                     </p>
                     <p style="margin: 5px 0 0; font-size: 12px; color: #9ca3af;">
-                        © ${new Date().getFullYear()} Udemy Clone. All rights reserved.
+                        © ${new Date().getFullYear()} SmartLMS. All rights reserved.
                     </p>
                 </div>
             </div>
@@ -91,7 +91,7 @@ const registerUser = async (req, res) => {
         try {
             await sendEmail({
                 email: user.email,
-                subject: 'Xác thực tài khoản - Udemy Clone',
+                subject: 'Xác thực tài khoản - SmartLMS',
                 message,
                 html
             });
@@ -209,7 +209,7 @@ const forgotPassword = async (req, res) => {
     <div style="max-w-md; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
         
         <div style="background-color: #7e22ce; padding: 30px; text-align: center;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: bold;">Udemy Clone</h1>
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: bold;">SmartLMS</h1>
         </div>
 
         <div style="padding: 30px; color: #374151;">
@@ -233,7 +233,7 @@ const forgotPassword = async (req, res) => {
 
         <div style="background-color: #f9fafb; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
             <p style="font-size: 12px; color: #9ca3af; margin: 0;">
-                © 2025 Udemy Clone. All rights reserved.
+                © 2025 SmartLMS. All rights reserved.
             </p>
         </div>
     </div>
@@ -243,7 +243,7 @@ const forgotPassword = async (req, res) => {
         try {
             await sendEmail({
                 email: user.email,
-                subject: 'Đặt lại mật khẩu - Udemy Clone',
+                subject: 'Đặt lại mật khẩu - SmartLMS',
                 message,
                 html
             });

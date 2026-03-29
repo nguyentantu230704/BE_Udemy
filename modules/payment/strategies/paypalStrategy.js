@@ -29,7 +29,7 @@ class PaypalStrategy extends PaymentStrategy {
           returnUrl,
           cancelUrl: `${returnUrl}?cancel=true`,
           userAction: 'PAY_NOW',
-          brandName: 'Udemy Clone',
+          brandName: 'SmartLMS',
         },
       },
     });

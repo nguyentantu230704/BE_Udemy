@@ -115,7 +115,7 @@ const verifyPayment = async (method, queryParams) => {
 
             <p>Bạn có thể truy cập khóa học ngay bây giờ tại trang "Khóa học của tôi".</p>
             <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="color: #666; font-size: 12px;">Udemy Clone Team</p>
+            <p style="color: #666; font-size: 12px;">SmartLMS Team</p>
         </div>
       `;
 

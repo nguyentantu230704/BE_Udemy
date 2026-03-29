@@ -351,7 +351,7 @@ const requestChangePassword = async (req, res) => {
 
         await sendEmail({
             email: user.email,
-            subject: 'Mã OTP Xác Nhận Đổi Mật Khẩu - Udemy Clone',
+            subject: 'Mã OTP Xác Nhận Đổi Mật Khẩu - SmartLMS',
             message,
             html
         });

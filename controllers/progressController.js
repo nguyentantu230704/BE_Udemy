@@ -122,7 +122,7 @@ const getCertificate = async (req, res) => {
                 certificateId: progress.certificateId,
                 studentName: progress.user.name,
                 courseTitle: progress.course.title,
-                instructorName: progress.course.instructor ? progress.course.instructor.name : 'Hệ thống Udemy Clone',
+                instructorName: progress.course.instructor ? progress.course.instructor.name : 'Hệ thống SmartLMS',
                 completedAt: progress.completedAt
             }
         });
