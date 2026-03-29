@@ -1,19 +1,23 @@
 const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
-    // 1. Tạo transporter (Cấu hình server mail)
-    // Nâng cấp: Tự động đổi secure = true nếu dùng port 465
+    // Tự động nhận diện Port: Nếu không cấu hình thì mặc định là 587
     const smptPort = process.env.SMTP_PORT || 587;
+    // Bắt buộc secure = true nếu dùng port 465 (SSL)
     const isSecure = smptPort == 465;
 
     const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: smptPort,
-        secure: isSecure, // Thông minh tự đổi thành true nếu là 465
+        secure: isSecure,
         auth: {
             user: process.env.SMTP_EMAIL,
             pass: process.env.SMTP_PASSWORD,
         },
+        // Thêm timeout để nếu lỗi mạng thì nhả lỗi ngay lập tức, không làm treo web
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 10000,
     });
 
     const message = {
@@ -21,13 +25,10 @@ const sendEmail = async (options) => {
         to: options.email,
         subject: options.subject,
         text: options.message,
-        html: options.html,
+        html: options.html
     };
 
-    // 3. Gửi mail
-    const info = await transporter.sendMail(message);
-
-    console.log('Message sent: %s', info.messageId);
+    await transporter.sendMail(message);
 };
 
 module.exports = sendEmail;
