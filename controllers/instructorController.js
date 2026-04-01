@@ -9,66 +9,57 @@ const getInstructorDashboard = async (req, res) => {
     try {
         const instructorId = req.user._id;
 
+        // Tỷ lệ hiện tại (Chỉ dùng để hiển thị mức rank hiện tại)
         const instructor = await User.findById(instructorId).select('adminCommissionRate');
-        const adminRate = instructor.adminCommissionRate !== undefined ? instructor.adminCommissionRate : 30;
-        const instructorShareRate = (100 - adminRate) / 100;
+        const currentAdminRate = instructor.adminCommissionRate !== undefined ? instructor.adminCommissionRate : 30;
 
         const myCourses = await Course.find({ instructor: instructorId }).select('_id title price totalStudents thumbnail');
         const myCourseIds = myCourses.map(c => c._id.toString());
 
         if (myCourseIds.length === 0) {
-            return res.json({ success: true, data: { grossRevenue: 0, netRevenue: 0, commissionRate: adminRate, totalStudents: 0, monthlyRevenue: [], bestSellers: [], salesHistory: [] } });
+            return res.json({ success: true, data: { grossRevenue: 0, netRevenue: 0, commissionRate: currentAdminRate, totalStudents: 0, monthlyRevenue: [], bestSellers: [], salesHistory: [] } });
         }
 
-        // --- BỔ SUNG: Populate thêm 'title' cho khóa học và 'user' để lấy tên học viên ---
         const transactions = await PaymentTransaction.find({
             status: 'paid',
             items: { $in: myCourseIds }
         })
-            .populate('items', 'price _id instructor title') // Lấy thêm title của khóa học
-            .populate('user', 'name email avatar')           // Lấy thông tin người mua
-            .sort({ createdAt: -1 });                        // Sắp xếp mới nhất lên đầu
+            .populate('items', '_id title')
+            .populate('user', 'name email avatar')
+            .sort({ createdAt: -1 });
 
         let grossRevenue = 0;
         let netRevenue = 0;
         let monthlyStats = {};
-
-        // --- MỚI: Mảng chứa lịch sử giao dịch ---
         let salesHistory = [];
 
         transactions.forEach(trans => {
-            const cartOriginalTotal = trans.items.reduce((sum, item) => sum + (item.price || 0), 0);
-            if (cartOriginalTotal === 0 && trans.amount > 0) return;
+            // 💡 CHỈ TÌM TRONG KÉT SẮT NHỮNG KHOẢN CHIA CỦA GIẢNG VIÊN NÀY
+            const mySplits = trans.revenueSplits.filter(s => s.instructor.toString() === instructorId.toString());
 
-            trans.items.forEach(course => {
-                if (course.instructor.toString() === instructorId.toString()) {
-                    let portionPaid = 0;
-                    let earning = 0;
+            mySplits.forEach(split => {
+                const totalCourseRevenue = split.instructorEarning + split.adminEarning;
+                grossRevenue += totalCourseRevenue;
+                netRevenue += split.instructorEarning; // Tiền thực nhận lưu trong két
 
-                    if (trans.amount > 0) {
-                        portionPaid = (course.price / cartOriginalTotal) * trans.amount;
-                        earning = portionPaid * instructorShareRate;
-                    }
+                const date = new Date(trans.paidAt || trans.updatedAt || trans.createdAt);
+                const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-                    grossRevenue += portionPaid;
-                    netRevenue += earning;
+                if (!monthlyStats[monthKey]) monthlyStats[monthKey] = 0;
+                monthlyStats[monthKey] += split.instructorEarning;
 
-                    const date = new Date(trans.updatedAt || trans.createdAt);
-                    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                // Lấy tên khóa học để hiển thị
+                const courseObj = trans.items.find(c => c._id.toString() === split.course.toString());
 
-                    if (!monthlyStats[monthKey]) monthlyStats[monthKey] = 0;
-                    monthlyStats[monthKey] += earning;
-
-                    // --- MỚI: Đẩy thông tin giao dịch vào mảng ---
-                    salesHistory.push({
-                        _id: trans._id.toString() + course._id.toString(), // Tạo ID giả cho list key
-                        date: date,
-                        student: trans.user ? { name: trans.user.name, email: trans.user.email, avatar: trans.user.avatar } : { name: 'Khách', email: '' },
-                        courseTitle: course.title,
-                        grossAmount: Math.round(portionPaid),
-                        netAmount: Math.round(earning)
-                    });
-                }
+                salesHistory.push({
+                    _id: trans._id.toString() + split.course.toString(),
+                    date: date,
+                    student: trans.user ? { name: trans.user.name, email: trans.user.email, avatar: trans.user.avatar } : { name: 'Khách', email: '' },
+                    courseTitle: courseObj ? courseObj.title : 'Khóa học',
+                    grossAmount: Math.round(totalCourseRevenue),
+                    netAmount: Math.round(split.instructorEarning),
+                    appliedRate: split.adminCommissionRate // 💡 Gửi tỷ lệ LÚC BÁN xuống Frontend
+                });
             });
         });
 
@@ -85,11 +76,11 @@ const getInstructorDashboard = async (req, res) => {
             data: {
                 grossRevenue: Math.round(grossRevenue),
                 netRevenue: Math.round(netRevenue),
-                commissionRate: adminRate,
+                commissionRate: currentAdminRate, // Tỷ lệ hiện tại
                 totalStudents,
                 monthlyRevenue,
                 bestSellers,
-                salesHistory // --- Trả mảng này về cho Frontend ---
+                salesHistory
             }
         });
 
@@ -117,35 +108,22 @@ const getInstructorCoursesSelect = async (req, res) => {
     }
 };
 
-// --- HÀM PHỤ: Tính toán số dư khả dụng (Sửa lại logic 70% cứng) ---
+// --- HÀM PHỤ: Tính toán số dư khả dụng ---
 const calculateBalance = async (instructorId) => {
-    // Lấy tỉ lệ từ DB
-    const instructor = await User.findById(instructorId).select('adminCommissionRate');
-    const adminRate = instructor.adminCommissionRate !== undefined ? instructor.adminCommissionRate : 30;
-    const instructorShareRate = (100 - adminRate) / 100;
-
-    const myCourses = await Course.find({ instructor: instructorId }).select('_id price');
+    const myCourses = await Course.find({ instructor: instructorId }).select('_id');
     const myCourseIds = myCourses.map(c => c._id.toString());
 
     const transactions = await PaymentTransaction.find({
         status: 'paid',
         items: { $in: myCourseIds }
-    }).populate('items', 'price instructor');
+    });
 
-    let totalEarned = 0; // TỔNG THỰC NHẬN
+    let totalEarned = 0;
     transactions.forEach(trans => {
-        const cartTotal = trans.items.reduce((sum, item) => sum + (item.price || 0), 0);
-        if (cartTotal === 0 && trans.amount > 0) return;
-
-        trans.items.forEach(item => {
-            if (item.instructor && item.instructor.toString() === instructorId.toString()) {
-                let earning = 0;
-                if (trans.amount > 0) {
-                    const portion = (item.price / cartTotal) * trans.amount;
-                    earning = portion * instructorShareRate; // Dùng tỉ lệ động
-                }
-                totalEarned += earning;
-            }
+        // Đọc từ két sắt thay vì tính lại
+        const mySplits = trans.revenueSplits.filter(s => s.instructor.toString() === instructorId.toString());
+        mySplits.forEach(split => {
+            totalEarned += split.instructorEarning;
         });
     });
 

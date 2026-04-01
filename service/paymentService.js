@@ -22,8 +22,7 @@ const createPayment = async (payload) => {
     provider: payload.method,
     amount: payload.amount,
     status: 'pending',
-    couponCode: payload.couponCode,      // <--- Lưu mã giảm giá
-    discountAmount: payload.discountAmount // <--- Lưu số tiền đã giảm
+    appliedCoupons: payload.appliedCoupons
   });
 
   return result;

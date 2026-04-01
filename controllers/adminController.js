@@ -31,29 +31,6 @@ const getPublicIdFromUrl = (url) => {
     }
 };
 
-// @desc    Lấy số liệu thống kê (Dashboard)
-// @route   GET /api/admin/stats
-const getAdminStats = async (req, res) => {
-    try {
-        const totalUsers = await User.countDocuments();
-        const totalCourses = await Course.countDocuments();
-        // Tính tổng doanh thu (giả sử trường price trong Course)
-        // Lưu ý: Logic này chỉ tính tổng giá khóa học, thực tế cần tính dựa trên Order/Payment
-        const courses = await Course.find({ isPublished: true }).select('price');
-        const totalRevenue = courses.reduce((acc, curr) => acc + (curr.price || 0), 0);
-
-        res.json({
-            success: true,
-            data: {
-                totalUsers,
-                totalCourses,
-                totalRevenue
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, message: "Lỗi server" });
-    }
-};
 
 // @desc    Lấy danh sách tất cả Users
 // @route   GET /api/admin/users
@@ -255,7 +232,7 @@ const removeUserCourse = async (req, res) => {
     }
 };
 
-// @desc    Lấy thống kê tổng quan (Dashboard)
+// @desc    Lấy thống kê tổng quan (Dashboard Admin)
 // @route   GET /api/admin/stats
 const getSystemStats = async (req, res) => {
     try {
@@ -263,58 +240,45 @@ const getSystemStats = async (req, res) => {
         const totalCourses = await Course.countDocuments();
         const pendingPayouts = await PayoutRequest.countDocuments({ status: 'pending' });
 
-        // 1. Lấy tất cả giao dịch thành công (Populate sâu để lấy % deal của giảng viên)
+        // 1. Lấy tất cả giao dịch thành công
+        // Thay vì populate sâu để lấy tỉ lệ hiện tại, ta chỉ cần tên khóa học, học viên và tên giảng viên (từ trong két sắt)
         const transactions = await PaymentTransaction.find({ status: 'paid' })
-            .populate({
-                path: 'items',
-                select: 'price title instructor',
-                populate: { path: 'instructor', select: 'name adminCommissionRate' } // Lấy tỉ lệ deal riêng
-            })
+            .populate('items', 'title')
             .populate('user', 'name email avatar')
-            .sort({ createdAt: -1 }); // Mới nhất lên đầu
+            .populate('revenueSplits.instructor', 'name') // Lấy tên giảng viên để in ra bảng
+            .sort({ createdAt: -1 });
 
         let totalGrossRevenue = 0; // Tổng dòng tiền GMV
         let totalNetProfit = 0;    // Lợi nhuận thực tế Admin bỏ túi
         let recentTransactions = []; // Lịch sử giao dịch
 
         transactions.forEach(trans => {
-            const cartOriginalTotal = trans.items.reduce((sum, item) => sum + (item.price || 0), 0);
+            // 💡 CHỈ TÌM TRONG KÉT SẮT (SNAPSHOT) THAY VÌ TÍNH TOÁN LẠI
+            if (trans.revenueSplits && trans.revenueSplits.length > 0) {
+                trans.revenueSplits.forEach(split => {
+                    // Doanh thu của 1 khóa học trong đơn = Tiền GV nhận + Tiền Admin nhận
+                    const courseRevenue = split.instructorEarning + split.adminEarning;
 
-            if (cartOriginalTotal === 0 && trans.amount > 0) return;
+                    totalGrossRevenue += courseRevenue;
+                    totalNetProfit += split.adminEarning; // Tiền Admin thực nhận lưu trong két
 
-            // Cộng tổng doanh số
-            totalGrossRevenue += trans.amount;
+                    const date = new Date(trans.paidAt || trans.updatedAt || trans.createdAt);
 
-            // Tính lợi nhuận chi tiết cho từng khóa học trong đơn
-            trans.items.forEach(course => {
-                let portionPaid = 0;
-                let adminEarning = 0;
+                    // Lấy tên khóa học để hiển thị
+                    const courseObj = trans.items.find(c => c._id.toString() === split.course.toString());
 
-                // Lấy % của Admin (nếu giảng viên chưa bị set deal thì mặc định lấy 30)
-                const adminRate = (course.instructor && course.instructor.adminCommissionRate !== undefined)
-                    ? course.instructor.adminCommissionRate
-                    : 30;
-
-                if (trans.amount > 0) {
-                    portionPaid = (course.price / cartOriginalTotal) * trans.amount;
-                    adminEarning = portionPaid * (adminRate / 100); // Tính lợi nhuận thực tế theo Deal
-                }
-
-                totalNetProfit += adminEarning;
-
-                // Lưu lại lịch sử để in ra bảng Admin
-                const date = new Date(trans.updatedAt || trans.createdAt);
-                recentTransactions.push({
-                    _id: trans._id.toString() + course._id.toString(),
-                    date: date,
-                    student: trans.user ? { name: trans.user.name, email: trans.user.email, avatar: trans.user.avatar } : { name: 'Khách', email: '' },
-                    courseTitle: course.title,
-                    instructorName: course.instructor ? course.instructor.name : 'Không xác định',
-                    grossAmount: Math.round(portionPaid),
-                    adminCommissionRate: adminRate,
-                    adminAmount: Math.round(adminEarning)
+                    recentTransactions.push({
+                        _id: trans._id.toString() + split.course.toString(),
+                        date: date,
+                        student: trans.user ? { name: trans.user.name, email: trans.user.email, avatar: trans.user.avatar } : { name: 'Khách', email: '' },
+                        courseTitle: courseObj ? courseObj.title : 'Khóa học',
+                        instructorName: split.instructor ? split.instructor.name : 'Giảng viên',
+                        grossAmount: Math.round(courseRevenue), // Giá trị khóa học lúc bán
+                        adminCommissionRate: split.adminCommissionRate, // 💡 Tỉ lệ Admin thu LÚC ĐÓ
+                        adminAmount: Math.round(split.adminEarning) // Tiền Admin thu LÚC ĐÓ
+                    });
                 });
-            });
+            }
         });
 
         // Đảm bảo mảng lịch sử được sắp xếp chuẩn theo thời gian
@@ -326,7 +290,7 @@ const getSystemStats = async (req, res) => {
                 totalUsers,
                 totalCourses,
                 totalRevenue: Math.round(totalGrossRevenue),
-                totalProfit: Math.round(totalNetProfit), // Số tiền này giờ đã tính cực chuẩn!
+                totalProfit: Math.round(totalNetProfit), // Số tiền này giờ đã bất biến!
                 pendingPayouts,
                 recentTransactions // Trả mảng này về cho Frontend hiển thị
             }
@@ -435,6 +399,6 @@ const updateInstructorCommission = async (req, res) => {
 
 
 module.exports = {
-    getAdminStats, getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse, getSystemStats, getPayoutRequests, processPayoutRequest, getAllCourses,
+    getAllUsers, deleteUser, createUser, updateUser, cleanupEnrollments, removeUserCourse, getSystemStats, getPayoutRequests, processPayoutRequest, getAllCourses,
     deleteCourseByAdmin, updateInstructorCommission
 };

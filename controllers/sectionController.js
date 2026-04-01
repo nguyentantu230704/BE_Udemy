@@ -1,5 +1,6 @@
 const Section = require('../models/Section');
 const Course = require('../models/Course');
+const Lesson = require('../models/Lesson');
 
 // @desc    Tạo chương học mới
 // @route   POST /api/sections

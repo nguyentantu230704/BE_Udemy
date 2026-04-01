@@ -76,40 +76,89 @@ exports.createPayment = async (req, res) => {
   }
 };
 
-/**
- * Callback từ payment gateway
- * Xử lý kết quả trả về từ VNPay/PayPal
- */
+// @desc    Callback xử lý sau khi thanh toán thành công
 exports.paymentCallback = async (req, res) => {
   try {
-    const { method } = req.params; // vnpay / paypal
+    const { method } = req.params;
     const queryParams = req.query;
-
-    // Service thực hiện xác thực và cập nhật DB
     const result = await paymentService.verifyPayment(method, queryParams);
-
-    // --- SỬA ĐỔI Ở ĐÂY: Dùng FE_URL để redirect về Client ---
-    // Lấy URL frontend từ biến môi trường (hoặc mặc định là localhost:3000)
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
 
     if (result.success) {
-      // Chuyển hướng về trang THÀNH CÔNG của Frontend
+      try {
+        const trans = await PaymentTransaction.findOne({ orderId: result.orderId }).populate('items');
+
+        if (trans && trans.revenueSplits.length === 0) {
+          let splits = [];
+
+          // 💡 LẶP QUA TỪNG KHÓA HỌC ĐỂ CHIA TIỀN CHÍNH XÁC
+          for (const course of trans.items) {
+
+            // Tìm xem khóa này có dùng mã không?
+            const applied = trans.appliedCoupons?.find(c => c.course.toString() === course._id.toString());
+            const discountAmt = applied ? applied.discountAmount : 0;
+
+            // GIÁ THỰC TẾ KHÁCH TRẢ CHO KHÓA NÀY = Giá gốc - Giảm giá
+            const courseActualPricePaid = (course.price || 0) - discountAmt;
+
+
+            const instructor = await User.findById(course.instructor).select('adminCommissionRate');
+            const adminRate = instructor?.adminCommissionRate !== undefined ? instructor.adminCommissionRate : 30;
+            const instructorShareRate = (100 - adminRate) / 100;
+
+            // Tính tiền dựa trên giá ĐÃ TRỪ MÃ (Cực kỳ công bằng!)
+            const earning = courseActualPricePaid * instructorShareRate;
+            const adminEarning = courseActualPricePaid - earning;
+
+            splits.push({
+              course: course._id,
+              instructor: course.instructor,
+              coursePriceAtPurchase: course.price,
+              courseActualPricePaid: courseActualPricePaid,
+              adminCommissionRate: adminRate,
+              instructorEarning: earning,
+              adminEarning: adminEarning,
+              appliedCoupon: applied ? applied.code : null // Ghi chú lại mã vào lịch sử
+            });
+          }
+
+          trans.revenueSplits = splits;
+          trans.paidAt = new Date();
+
+          // 💡 VÒNG LẶP GHI NHẬT KÝ CHO NHIỀU MÃ GIẢM GIÁ
+          if (trans.appliedCoupons && trans.appliedCoupons.length > 0) {
+            for (const ac of trans.appliedCoupons) {
+              const alreadyLogged = await Coupon.findOne({
+                code: ac.code,
+                'usedBy.orderId': trans.orderId
+              });
+
+              if (!alreadyLogged) {
+                await Coupon.findOneAndUpdate(
+                  { code: ac.code },
+                  {
+                    $inc: { usedCount: 1 },
+                    $push: {
+                      usedBy: { user: trans.user, orderId: trans.orderId, usedAt: new Date() }
+                    }
+                  }
+                );
+              }
+            }
+          }
+
+          await trans.save();
+        }
+      } catch (snapshotError) {
+        console.error('Lỗi khi chốt sổ chia tiền:', snapshotError);
+      }
       return res.redirect(`${clientUrl}/payment/success?orderId=${result.orderId}`);
     }
 
-    // Chuyển hướng về trang THẤT BẠI của Frontend
-    return res.redirect(
-      `${clientUrl}/payment/failed?message=${encodeURIComponent(result.message)}`
-    );
-
+    return res.redirect(`${clientUrl}/payment/failed?message=${encodeURIComponent(result.message)}`);
   } catch (err) {
-    console.error('Payment callback error:', err);
-
-    // Trường hợp lỗi Crash cũng redirect về Frontend báo lỗi
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
-    return res.redirect(
-      `${clientUrl}/payment/failed?message=${encodeURIComponent('Hệ thống gặp lỗi khi xử lý thanh toán')}`
-    );
+    return res.redirect(`${clientUrl}/payment/failed?message=Lỗi hệ thống`);
   }
 };
 
@@ -139,41 +188,32 @@ exports.getTransactionDetail = async (req, res) => {
   }
 };
 
-// @desc    Kiểm tra mã giảm giá (Logic chi tiết: Tồn tại -> Hết hạn -> Khóa học)
+// @desc    Kiểm tra mã giảm giá CHO TỪNG KHÓA HỌC
 // @route   POST /api/payment/check-coupon
 exports.checkCoupon = async (req, res) => {
   try {
-    const { code, courseIds } = req.body;
+    const { code, courseId } = req.body; // 💡 Nhận chính xác 1 ID khóa học
 
-    // 1. Tìm mã giảm giá (Chưa check ngày hết hạn vội)
     const coupon = await Coupon.findOne({
       code: code.toUpperCase(),
       isActive: true,
-      // expiryDate: { $gt: Date.now() } <--- BỎ DÒNG NÀY ĐI
     }).populate('course');
 
-    // 2. Check: Mã có tồn tại không?
-    if (!coupon) {
-      return res.status(404).json({ success: false, message: 'Mã giảm giá không tồn tại' });
-    }
+    if (!coupon) return res.status(404).json({ success: false, message: 'Mã giảm giá không tồn tại' });
 
-    // 3. Check: Mã có hết hạn không? (Logic MỚI)
     if (new Date() > new Date(coupon.expiryDate)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tiếc quá! Mã giảm giá này đã hết hạn sử dụng.'
-      });
+      return res.status(400).json({ success: false, message: 'Tiếc quá! Mã giảm giá này đã hết hạn.' });
     }
 
-    // 4. Check: Mã có áp dụng cho khóa học trong giỏ không?
-    if (!courseIds.includes(coupon.course._id.toString())) {
-      return res.status(400).json({
-        success: false,
-        message: `Mã này chỉ áp dụng cho khóa học: ${coupon.course.title}`
-      });
+    if (coupon.usedCount >= coupon.usageLimit) {
+      return res.status(400).json({ success: false, message: 'Mã giảm giá này đã hết lượt sử dụng.' });
     }
 
-    // 5. Nếu mọi thứ OK
+    // Check xem mã có đúng của khóa học này không
+    if (coupon.course._id.toString() !== courseId) {
+      return res.status(400).json({ success: false, message: `Mã này chỉ áp dụng cho khóa học: ${coupon.course.title}` });
+    }
+
     res.json({
       success: true,
       data: {
@@ -189,68 +229,72 @@ exports.checkCoupon = async (req, res) => {
 };
 
 
+// @desc    Tạo link thanh toán VNPay
 exports.createPaymentUrl = async (req, res) => {
   try {
-    const { method, items, couponCode } = req.body;
+    // 💡 Nhận danh sách mã giảm giá từ FE dưới dạng mảng: [{ courseId: '...', code: 'REACT50' }]
+    const { method, items, appliedCoupons = [] } = req.body;
 
-    // 1. Xử lý IP Address chuẩn
     let ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
     if (typeof ipAddr === 'string' && ipAddr.includes(',')) ipAddr = ipAddr.split(',')[0].trim();
     if (ipAddr === '::1') ipAddr = '127.0.0.1';
 
-    // 2. Tính tiền từ DB
     const courses = await Course.find({ _id: { $in: items } });
     if (courses.length === 0) return res.status(400).json({ message: 'Không tìm thấy khóa học' });
 
-    let totalAmount = courses.reduce((acc, course) => acc + course.price, 0);
-    let discountAmount = 0;
-    let finalCouponCode = null;
+    let finalTotalAmount = 0;
+    let validatedCoupons = []; // Lưu các mã hợp lệ để nhét vào Database
 
-    // Logic Coupon
-    if (couponCode) {
-      const coupon = await Coupon.findOne({
-        code: couponCode.toUpperCase(),
-        isActive: true,
-        expiryDate: { $gt: Date.now() }
-      });
+    // 💡 TÍNH TOÁN ĐỘC LẬP TỪNG KHÓA HỌC
+    for (const course of courses) {
+      let coursePrice = course.price;
 
-      if (coupon) {
-        const targetCourse = courses.find(c => c._id.toString() === coupon.course.toString());
-        if (targetCourse) {
-          const discount = (targetCourse.price * coupon.discountPercent) / 100;
-          discountAmount = discount;
-          totalAmount = totalAmount - discount;
-          finalCouponCode = couponCode;
+      // Tìm xem khóa học này có mã giảm giá gửi lên không
+      const applied = appliedCoupons.find(c => c.courseId === course._id.toString());
+
+      if (applied) {
+        const coupon = await Coupon.findOne({
+          code: applied.code.toUpperCase(),
+          course: course._id,
+          isActive: true,
+          expiryDate: { $gt: Date.now() } // Chỉ tính mã còn hạn
+        });
+
+        // Nếu mã hợp lệ và còn lượt
+        if (coupon && coupon.usedCount < coupon.usageLimit) {
+          const discountAmt = (course.price * coupon.discountPercent) / 100;
+          coursePrice = course.price - discountAmt; // Trừ tiền khóa này
+
+          validatedCoupons.push({
+            course: course._id,
+            code: coupon.code,
+            discountAmount: discountAmt
+          });
         }
       }
+      finalTotalAmount += coursePrice; // Cộng vào tổng hóa đơn
     }
 
-    if (totalAmount < 0) totalAmount = 0;
+    if (finalTotalAmount < 0) finalTotalAmount = 0;
 
-    // 3. FIX LỖI Ở ĐÂY: Tạo returnUrl động
-    // URL để VNPay gọi lại sau khi thanh toán xong
     const serverUrl = process.env.SERVER_URL || `${req.protocol}://${req.get('host')}`;
     const returnUrl = `${serverUrl}/api/payment/callback/${method}`;
 
-    // 4. Chuẩn bị payload khớp chính xác với vnpayStrategy.js
     const payload = {
       method,
-      amount: totalAmount,
+      amount: finalTotalAmount,
       orderId: `ORDER_${new Date().getTime()}`,
-
-      // SỬA TÊN BIẾN CHO KHỚP STRATEGY:
-      description: `Thanh toan don hang ${items.length} khoa hoc`, // Cũ là 'orderInfo' -> Sai
-      ipAddress: ipAddr,                                          // Cũ là 'ipAddr' -> Sai
-      returnUrl: returnUrl,                                       // Cũ bị thiếu -> Gây lỗi 03
-
+      description: `Thanh toan don hang ${items.length} khoa hoc`,
+      ipAddress: ipAddr,
+      returnUrl: returnUrl,
       items,
       userId: req.user._id,
-      couponCode: finalCouponCode,
-      discountAmount: discountAmount
+
+      // 💡 Gửi mảng mã giảm giá hợp lệ xuống Service để lưu vào Transaction
+      appliedCoupons: validatedCoupons
     };
 
     const result = await paymentService.createPayment(payload);
-
     res.json(result);
 
   } catch (error) {
