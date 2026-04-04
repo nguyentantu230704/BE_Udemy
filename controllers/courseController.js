@@ -3,6 +3,7 @@ const slugify = require('slugify'); // Thư viện tạo URL thân thiện
 const Section = require('../models/Section');
 const Lesson = require('../models/Lesson');
 const User = require('../models/User');
+const CourseProgress = require('../models/CourseProgress');
 const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Tạo khóa học mới
@@ -92,11 +93,8 @@ const getCourseBySlug = async (req, res) => {
 
         // --- GIỮ NGUYÊN LOGIC CŨ CỦA BẠN ---
         const course = await Course.findOne({ slug })
-            // 1. Lấy thông tin Giảng viên
             .populate('instructor', 'name avatar bio headline')
-            // 2. Lấy thông tin Danh mục
             .populate('category', 'name slug')
-            // 3. QUAN TRỌNG: Lấy Sections và lồng bên trong là Lessons
             .populate({
                 path: 'sections',
                 populate: {
@@ -109,53 +107,78 @@ const getCourseBySlug = async (req, res) => {
             return res.status(404).json({ success: false, message: "Không tìm thấy khóa học" });
         }
 
-        // --- CẬP NHẬT MỚI TỪ ĐÂY ---
+        let hasAccess = false;
+        let isInstructor = false;
+        let userProgress = null;
 
-        let hasAccess = false; // Mặc định là chưa được xem
-
-        // Kiểm tra nếu User đang đăng nhập
         if (req.user) {
             const userId = req.user._id.toString();
-
-            // 1. Kiểm tra Enrollment (Học viên đã mua)
-            // Cần import Model User ở đầu file nếu chưa có
             const user = await User.findById(userId);
+
             if (user && user.enrolledCourses.includes(course._id)) {
                 hasAccess = true;
             }
 
-            // 2. Kiểm tra Quyền Giảng viên (Chính chủ)
-            // course.instructor là Object do đã populate ở trên
             if (course.instructor && course.instructor._id.toString() === userId) {
                 hasAccess = true;
+                isInstructor = true;
+            }
+
+            // Lấy tiến độ nếu là học viên đã mua khóa
+            if (hasAccess && !isInstructor) {
+                userProgress = await CourseProgress.findOne({ user: userId, course: course._id });
             }
         }
 
-        // Chuyển sang Object thuần để chỉnh sửa dữ liệu trả về
         const courseData = course.toObject();
 
-        // Nếu KHÔNG có quyền truy cập, ta cần ẩn link video (nếu muốn bảo mật)
-        // Dùng if check kỹ lưỡng để tránh lỗi "forEach of undefined"
-        if (!hasAccess) {
-            if (courseData.sections && Array.isArray(courseData.sections)) {
-                courseData.sections.forEach(section => {
-                    if (section.lessons && Array.isArray(section.lessons)) {
-                        section.lessons.forEach(lesson => {
-                            // Logic ẩn video nếu cần (Ví dụ chỉ hiện preview)
-                            if (lesson.type === 'video' && !lesson.isPreview) {
+        // --- BẮT ĐẦU: THUẬT TOÁN QUIZ-GATING ---
+        let blockNextLessons = false; // Mặc định mở cửa
+
+        if (courseData.sections && Array.isArray(courseData.sections)) {
+            courseData.sections.forEach(section => {
+                if (section.lessons && Array.isArray(section.lessons)) {
+                    section.lessons.forEach(lesson => {
+
+                        // 1. Kiểm tra bài đã hoàn thành chưa
+                        let isCompleted = false;
+                        if (userProgress && userProgress.completedLessons) {
+                            // Dùng .toString() để so sánh ObjectId an toàn nhất
+                            isCompleted = userProgress.completedLessons.some(id => id.toString() === lesson._id.toString());
+                        }
+                        lesson.isCompleted = isCompleted;
+
+                        // 2. Gắn cờ khóa/mở (isLocked)
+                        if (isInstructor) {
+                            lesson.isLocked = false;
+                        } else if (hasAccess) {
+                            lesson.isLocked = blockNextLessons; // Sập cửa nếu trước đó có Quiz chưa đỗ
+                        } else {
+                            lesson.isLocked = !lesson.isPreview;
+                        }
+
+                        // 3. Trạm kiểm soát: Đụng Quiz chưa làm -> Bật cờ đóng cửa bài phía sau
+                        const lessonType = lesson.type || 'video';
+                        if (lessonType === 'quiz' && !isCompleted) {
+                            blockNextLessons = true;
+                        }
+
+                        // --- GIỮ NGUYÊN ĐOẠN ẨN VIDEO THEO ĐÚNG BẢN GỐC CỦA BẠN ---
+                        if (!hasAccess) {
+                            if (lessonType === 'video' && !lesson.isPreview) {
                                 // lesson.video = null; // Bỏ comment dòng này nếu muốn ẩn link video từ server
                             }
-                        });
-                    }
-                });
-            }
+                        }
+                    });
+                }
+            });
         }
 
         res.json({
             success: true,
             data: {
                 ...courseData,
-                isAccess: hasAccess // Trả về cờ này để Frontend hiển thị nút "Vào học"
+                isAccess: hasAccess
             }
         });
 
@@ -263,7 +286,10 @@ const updateCourse = async (req, res) => {
         const { title, description, price, category } = req.body;
         if (title) course.title = title;
         if (description) course.description = description;
-        if (price) course.price = price;
+
+        // 💡 SỬA CHỈ MỘT DÒNG NÀY: Cho phép nhận giá trị 0
+        if (price !== undefined && price !== null) course.price = price;
+
         if (category) course.category = category;
 
         // Xử lý ảnh bìa mới (nếu có upload)

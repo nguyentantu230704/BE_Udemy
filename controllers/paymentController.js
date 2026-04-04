@@ -302,3 +302,89 @@ exports.createPaymentUrl = async (req, res) => {
     res.status(500).json({ message: 'Lỗi tạo thanh toán: ' + error.message });
   }
 };
+
+// @desc    Đăng ký khóa học MIỄN PHÍ (Bỏ qua cổng thanh toán VNPay/PayPal)
+// @route   POST /api/payment/enroll-free
+exports.enrollFreeCourse = async (req, res) => {
+  try {
+    const { courseId } = req.body;
+    const userId = req.user._id;
+
+    // 1. Kiểm tra khóa học có tồn tại không
+    const course = await Course.findById(courseId);
+    if (!course) {
+      return res.status(404).json({ success: false, message: 'Khóa học không tồn tại' });
+    }
+
+    // 2. CHỐT CHẶN BẢO MẬT: Phải thực sự là khóa học miễn phí (giá = 0)
+    if (course.price > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Khóa học này có phí. Hành vi gian lận đã bị từ chối!'
+      });
+    }
+
+    // 3. Lấy thông tin User
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
+    }
+
+    // 4. Kiểm tra xem học viên đã ghi danh chưa
+    if (user.enrolledCourses.includes(courseId)) {
+      return res.status(400).json({ success: false, message: 'Bạn đã đăng ký khóa học này rồi' });
+    }
+
+    // --- BẮT ĐẦU QUÁ TRÌNH GHI DANH ---
+
+    // 5. Thêm khóa học vào danh sách đã mua
+    user.enrolledCourses.push(courseId);
+
+    // 6. Tự động xóa khóa học này khỏi giỏ hàng (nếu khách lỡ thêm vào trước đó)
+    if (user.cart && user.cart.length > 0) {
+      user.cart = user.cart.filter(id => id.toString() !== courseId.toString());
+    }
+    await user.save();
+
+    // 7. Tăng số lượng học viên của khóa học lên 1
+    course.totalStudents += 1;
+    await course.save();
+
+    // 8. (Tùy chọn chuyên nghiệp) Lưu một lịch sử giao dịch 0đ để dễ thống kê sau này
+    const generatedOrderId = `FREE_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    try {
+      const newTransaction = new PaymentTransaction({
+        user: userId,
+        items: [courseId],
+        amount: 0,
+        method: 'free', // Đánh dấu phương thức là free
+        orderId: generatedOrderId,
+        status: 'completed',
+        paidAt: new Date(),
+        revenueSplits: [{
+          course: course._id,
+          instructor: course.instructor,
+          coursePriceAtPurchase: 0,
+          courseActualPricePaid: 0,
+          adminCommissionRate: 0,
+          instructorEarning: 0,
+          adminEarning: 0,
+          appliedCoupon: null
+        }]
+      });
+      await newTransaction.save();
+    } catch (err) {
+      console.error("Lỗi tạo log giao dịch free (Không ảnh hưởng tiến trình):", err);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Đăng ký khóa học miễn phí thành công!',
+      orderId: generatedOrderId
+    });
+
+  } catch (error) {
+    console.error("Lỗi enrollFreeCourse:", error);
+    return res.status(500).json({ success: false, message: 'Lỗi server' });
+  }
+};

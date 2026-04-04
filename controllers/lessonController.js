@@ -3,13 +3,13 @@ const Section = require('../models/Section');
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Tạo bài học mới (Hỗ trợ Video, Text, Quiz)
 // @route   POST /api/lessons
 // @access  Private (Instructor)
 const createLesson = async (req, res) => {
     try {
-        // Lấy dữ liệu từ req.body (Do dùng multer nên data text cũng nằm trong body)
         const { title, sectionId, type, content, quizQuestions, isPreview, passPercent } = req.body;
 
         if (!title || !sectionId) {
@@ -19,7 +19,7 @@ const createLesson = async (req, res) => {
         const lessonData = {
             title,
             section: sectionId,
-            type: type || 'video', // Nhận type từ form
+            type: type || 'video',
             isPreview: isPreview === 'true',
             passPercent: passPercent ? Number(passPercent) : 80
         };
@@ -27,14 +27,23 @@ const createLesson = async (req, res) => {
         // Xử lý theo loại
         if (type === 'video') {
             if (req.file) {
+
+                // 🛡️ BẢO MẬT VIDEO (HLS TỰ ĐỘNG BẰNG CLOUDINARY)
+                // Ép Cloudinary biến file .mp4 thành hàng trăm file nhỏ .ts 
+                // và tạo ra 1 file danh sách phát .m3u8 để chặn IDM/Cốc Cốc tải trộm
+                const secureHlsUrl = cloudinary.url(req.file.filename, {
+                    resource_type: 'video',
+                    format: 'm3u8',             // Đuôi HLS
+                    streaming_profile: 'auto'   // Tự tối ưu chất lượng theo mạng (Adaptive Bitrate)
+                });
+
                 lessonData.video = {
-                    url: req.file.path,
+                    url: secureHlsUrl,          // 💡 Lưu link HLS vào DB thay vì link .mp4 gốc
                     public_id: req.file.filename,
                     duration: req.body.duration || 0
                 };
             }
         } else if (type === 'document') {
-            // THÊM ĐOẠN NÀY CHO PDF
             if (req.file) {
                 lessonData.document = {
                     url: req.file.path,
@@ -51,7 +60,6 @@ const createLesson = async (req, res) => {
 
         const lesson = await Lesson.create(lessonData);
 
-        // Cập nhật Section
         await Section.findByIdAndUpdate(sectionId, {
             $push: { lessons: lesson._id }
         });
@@ -124,7 +132,7 @@ const generateQuizByAI = async (req, res) => {
 
         // Khởi tạo Gemini API
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        // Sử dụng model gemini-1.5-flash vì nó cực kỳ nhanh và phù hợp cho text/json
+        // Sử dụng model gemini-2.5-flash vì nó cực kỳ nhanh và phù hợp cho text/json
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         // Câu lệnh (Prompt) ép AI trả về chuẩn JSON format của Model Lesson
         const aiPrompt = `
@@ -238,7 +246,7 @@ const summarizePDF = async (req, res) => {
         // 2. Chuyển đổi sang Base64 để gửi cho Gemini
         const base64Data = Buffer.from(arrayBuffer).toString('base64');
 
-        // 3. Khởi tạo Gemini AI (Dùng model 1.5-flash hoặc 2.5-flash vì chúng hỗ trợ đọc File rất tốt)
+        // 3. Khởi tạo Gemini AI (Dùng 2.5-flash vì chúng hỗ trợ đọc File rất tốt)
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 

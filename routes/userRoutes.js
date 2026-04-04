@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getUserProfile, enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart, requestChangePassword, verifyChangePassword } = require('../controllers/userController');
+const { getUserProfile, enrollCourse, getMyCourses, updateUserProfile, getCart, addToCart, removeFromCart, requestChangePassword, verifyChangePassword, getPublicUserProfile } = require('../controllers/userController');
 const { protect } = require('../middleware/authMiddleware');
 const { upload } = require('../config/cloudinary'); // Import bộ upload
 
@@ -24,7 +24,7 @@ router.get('/cart', protect, getCart);
 router.post('/cart', protect, addToCart);
 router.delete('/cart/:courseId', protect, removeFromCart);
 
-
+router.get('/:id', getPublicUserProfile);
 
 
 module.exports = router;

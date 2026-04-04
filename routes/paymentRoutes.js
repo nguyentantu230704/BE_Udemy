@@ -17,6 +17,6 @@ router.get('/callback/:method', paymentController.paymentCallback);
 // Route này dùng để Frontend gọi lấy thông tin hiển thị lên trang Success
 router.get('/transaction/:orderId', paymentController.getTransactionDetail);
 
-
+router.post('/enroll-free', protect, paymentController.enrollFreeCourse);
 
 module.exports = router;

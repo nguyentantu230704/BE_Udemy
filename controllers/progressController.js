@@ -1,12 +1,13 @@
 const CourseProgress = require('../models/CourseProgress');
 const Course = require('../models/Course');
+const User = require('../models/User');               // 💡 MỚI: Import User để lấy tên học viên
+const Certificate = require('../models/Certificate'); // 💡 MỚI: Import bảng Certificate
+const Lesson = require('../models/Lesson');
 const crypto = require('crypto');
 
 // ==========================================
 // 1. LẤY TIẾN ĐỘ HỌC TẬP
 // ==========================================
-// @desc    Lấy tiến độ của user trong 1 khóa học
-// @route   GET /api/progress/:courseId
 const getProgress = async (req, res) => {
     try {
         const { courseId } = req.params;
@@ -32,31 +33,46 @@ const getProgress = async (req, res) => {
 // ==========================================
 // 2. LƯU TIẾN ĐỘ & CẤP CHỨNG CHỈ (NẾU ĐỦ 100%)
 // ==========================================
-// @desc    Đánh dấu bài học là hoàn thành và CẤP CHỨNG CHỈ nếu đủ 100%
-// @route   POST /api/progress/mark-completed
 const markLessonCompleted = async (req, res) => {
     try {
-        const { courseId, lessonId } = req.body;
+        // 💡 BẮT ĐIỂM SỐ: Nhận thêm 'score' từ body
+        const { courseId, lessonId, score } = req.body;
         const userId = req.user._id;
 
+        // --- BƯỚC 1: XÁC THỰC BÀI QUIZ (CHỐT CHẶN BẢO MẬT) ---
+        const lesson = await Lesson.findById(lessonId);
+        if (!lesson) {
+            return res.status(404).json({ success: false, message: "Không tìm thấy bài học" });
+        }
+
+        if (lesson.type === 'quiz') {
+            const requiredScore = lesson.passPercent || 80;
+            // Nếu Frontend không gửi điểm, hoặc điểm thấp hơn chuẩn -> Báo lỗi 400 chặn lưu DB
+            if (score === undefined || score < requiredScore) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Bạn cần đạt ít nhất ${requiredScore}% để hoàn thành bài trắc nghiệm này.`
+                });
+            }
+        }
+
+        // --- BƯỚC 2: XỬ LÝ LƯU TIẾN ĐỘ ---
         let progress = await CourseProgress.findOne({ user: userId, course: courseId });
 
         if (!progress) {
             progress = new CourseProgress({ user: userId, course: courseId, completedLessons: [] });
         }
 
-        // 1. Lưu bài học vào danh sách đã hoàn thành
         if (!progress.completedLessons.includes(lessonId)) {
             progress.completedLessons.push(lessonId);
         }
         progress.lastAccessedLesson = lessonId;
 
-        // 2. LOGIC KIỂM TRA & CẤP CHỨNG CHỈ (Chỉ chạy nếu chưa hoàn thành)
+        // 💡 LOGIC KIỂM TRA & CẤP CHỨNG CHỈ (Giữ nguyên gốc của bạn)
         if (!progress.isCompleted) {
-            const course = await Course.findById(courseId).populate({
-                path: 'sections',
-                select: 'lessons'
-            });
+            const course = await Course.findById(courseId)
+                .populate({ path: 'sections', select: 'lessons' })
+                .populate('instructor', 'name');
 
             if (course && course.sections) {
                 let totalLessons = 0;
@@ -64,14 +80,25 @@ const markLessonCompleted = async (req, res) => {
                     if (sec.lessons) totalLessons += sec.lessons.length;
                 });
 
-                // So sánh số bài đã học với tổng số bài thực tế của khóa
                 if (totalLessons > 0 && progress.completedLessons.length >= totalLessons) {
                     progress.isCompleted = true;
                     progress.completedAt = Date.now();
 
-                    // Tạo mã chứng chỉ dạng: CERT-XXXXXX + Timestamp
                     const randomCode = crypto.randomBytes(3).toString('hex').toUpperCase();
-                    progress.certificateId = `CERT-${randomCode}-${Date.now().toString().slice(-6)}`;
+                    const certId = `UC-${randomCode}${Date.now().toString().slice(-4)}`;
+                    progress.certificateId = certId;
+
+                    const student = await User.findById(userId).select('name');
+
+                    await Certificate.create({
+                        certificateId: certId,
+                        user: userId,
+                        course: courseId,
+                        studentName: student.name,
+                        courseTitle: course.title,
+                        instructorName: course.instructor ? course.instructor.name : 'Giảng viên SmartLMS',
+                        issueDate: Date.now()
+                    });
                 }
             }
         }
@@ -93,37 +120,33 @@ const markLessonCompleted = async (req, res) => {
 };
 
 // ==========================================
-// 3. TRA CỨU CHỨNG CHỈ (PUBLIC)
+// 3. TRA CỨU CHỨNG CHỈ (PUBLIC PORTAL)
 // ==========================================
-// @desc    Tra cứu thông tin chứng chỉ bằng mã (Public)
-// @route   GET /api/progress/certificate/:certificateId
 const getCertificate = async (req, res) => {
     try {
         const { certificateId } = req.params;
 
-        const progress = await CourseProgress.findOne({ certificateId })
-            .populate('user', 'name email')
-            .populate({
-                path: 'course',
-                select: 'title instructor',
-                populate: { path: 'instructor', select: 'name' }
-            });
+        // 💡 BÂY GIỜ CHÚNG TA TÌM TRONG BẢNG CERTIFICATE THAY VÌ COURSE_PROGRESS
+        const certificate = await Certificate.findOne({
+            certificateId: certificateId.toUpperCase()
+        });
 
-        if (!progress || !progress.isCompleted) {
+        // Kiểm tra xem chứng chỉ có tồn tại và chưa bị thu hồi không
+        if (!certificate || !certificate.isValid) {
             return res.status(404).json({
                 success: false,
-                message: "Chứng chỉ không tồn tại hoặc chưa hợp lệ"
+                message: "Chứng chỉ không tồn tại trên hệ thống hoặc đã bị thu hồi!"
             });
         }
 
         res.json({
             success: true,
             data: {
-                certificateId: progress.certificateId,
-                studentName: progress.user.name,
-                courseTitle: progress.course.title,
-                instructorName: progress.course.instructor ? progress.course.instructor.name : 'Hệ thống SmartLMS',
-                completedAt: progress.completedAt
+                certificateId: certificate.certificateId,
+                studentName: certificate.studentName,       // Dữ liệu Snapshot
+                courseTitle: certificate.courseTitle,       // Dữ liệu Snapshot
+                instructorName: certificate.instructorName, // Dữ liệu Snapshot
+                issueDate: certificate.issueDate
             }
         });
 
@@ -133,5 +156,4 @@ const getCertificate = async (req, res) => {
     }
 };
 
-// Xuất khẩu đầy đủ cả 3 hàm
 module.exports = { getProgress, markLessonCompleted, getCertificate };

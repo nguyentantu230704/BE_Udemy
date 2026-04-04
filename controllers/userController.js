@@ -75,8 +75,7 @@ const getMyCourses = async (req, res) => {
             return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        // 2. [THÊM MỚI] Lấy khóa học TỰ DẠY (Taught)
-        // Cần populate giống hệt bên trên để logic tính tiến độ bên dưới hoạt động được
+        // 2. Lấy khóa học TỰ DẠY (Taught)
         const taughtCourses = await Course.find({ instructor: userId })
             .select('title slug thumbnail instructor price sections')
             .populate('instructor', 'name')
@@ -86,30 +85,23 @@ const getMyCourses = async (req, res) => {
                 populate: { path: 'lessons', select: '_id' }
             });
 
-        // 3. [THÊM MỚI] Gộp danh sách và Loại bỏ trùng lặp
+        // 3. Gộp danh sách và Loại bỏ trùng lặp
         let allCourses = user.enrolledCourses || [];
 
         if (taughtCourses.length > 0) {
             const courseMap = new Map();
-
-            // Ưu tiên khóa đã mua (để giữ nguyên thứ tự hoặc logic nếu cần)
             allCourses.forEach(c => courseMap.set(c._id.toString(), c));
-
-            // Thêm khóa tự dạy (nếu chưa có trong list mua)
             taughtCourses.forEach(c => {
                 if (!courseMap.has(c._id.toString())) {
                     courseMap.set(c._id.toString(), c);
                 }
             });
-
             allCourses = Array.from(courseMap.values());
         }
 
         // 4. Tính toán tiến độ cho DANH SÁCH TỔNG HỢP (allCourses)
         const coursesWithProgress = await Promise.all(allCourses.map(async (course) => {
             if (!course) return null;
-
-            // --- Logic tính tiến độ (GIỮ NGUYÊN TỪ CODE CỦA BẠN) ---
 
             // 4.1. Lấy danh sách TẤT CẢ ID bài học hợp lệ
             let validLessonIds = [];
@@ -132,12 +124,20 @@ const getMyCourses = async (req, res) => {
             });
 
             let completedCount = 0;
-            if (progressDoc && progressDoc.completedLessons) {
-                // Lọc chỉ đếm những bài thực sự tồn tại (Fix lỗi > 100%)
-                const cleanCompletedLessons = progressDoc.completedLessons.filter(completedId =>
-                    validLessonIds.includes(completedId.toString())
-                );
-                completedCount = cleanCompletedLessons.length;
+            let certId = null; // 💡 THÊM MỚI: Biến hứng mã chứng chỉ
+
+            if (progressDoc) {
+                if (progressDoc.completedLessons) {
+                    const cleanCompletedLessons = progressDoc.completedLessons.filter(completedId =>
+                        validLessonIds.includes(completedId.toString())
+                    );
+                    completedCount = cleanCompletedLessons.length;
+                }
+
+                // 💡 THÊM MỚI: Nếu DB có lưu mã chứng chỉ thì bốc ra luôn
+                if (progressDoc.certificateId) {
+                    certId = progressDoc.certificateId;
+                }
             }
 
             // 4.3. Tính phần trăm
@@ -146,7 +146,8 @@ const getMyCourses = async (req, res) => {
 
             return {
                 ...course.toObject(),
-                progress: progressPercent
+                progress: progressPercent,
+                certificateId: certId // 💡 THÊM MỚI: Đính kèm mã chứng chỉ vào API trả về
             };
         }));
 
@@ -160,6 +161,30 @@ const getMyCourses = async (req, res) => {
     } catch (error) {
         console.error("Lỗi getMyCourses:", error);
         res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+};
+
+
+// @desc    Lấy thông tin công khai của người dùng bất kỳ (Giảng viên/User)
+// @route   GET /api/users/:id
+// @access  Public
+const getPublicUserProfile = async (req, res) => {
+    try {
+        // Chỉ lấy các trường an toàn, tuyệt đối không lấy password/otp/cart...
+        const user = await User.findById(req.params.id)
+            .select('name avatar headline bio email phone createdAt');
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng' });
+        }
+
+        res.json({
+            success: true,
+            data: user
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
     }
 };
 
@@ -198,7 +223,7 @@ const updateUserProfile = async (req, res) => {
             user.name = req.body.name || user.name;
             user.headline = req.body.headline || user.headline;
             user.bio = req.body.bio || user.bio;
-
+            user.phone = req.body.phone || user.phone;
             // Cập nhật Mạng xã hội (nếu có)
             user.website = req.body.website || user.website;
             user.twitter = req.body.twitter || user.twitter;
@@ -230,7 +255,8 @@ const updateUserProfile = async (req, res) => {
                     role: updatedUser.role,
                     avatar: updatedUser.avatar,
                     headline: updatedUser.headline,
-                    bio: updatedUser.bio
+                    bio: updatedUser.bio,
+                    phone: updatedUser.phone
                 }
             });
         } else {
@@ -402,5 +428,5 @@ const verifyChangePassword = async (req, res) => {
 module.exports = {
     enrollCourse, getMyCourses, updateUserProfile, getCart,
     addToCart, removeFromCart, getUserProfile,
-    requestChangePassword, verifyChangePassword // <--- Thêm vào đây
+    requestChangePassword, verifyChangePassword, getPublicUserProfile // <--- Thêm vào đây
 };
